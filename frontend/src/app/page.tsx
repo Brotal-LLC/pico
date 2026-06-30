@@ -1,10 +1,18 @@
-"use client";
-
-import { Button } from "@/components/ui/Button";
+import { redirect } from "next/navigation";
 import Link from "next/link";
+import { Button } from "@/components/ui/Button";
 import { ArrowRight, Cloud } from "lucide-react";
+import { auth } from "@/lib/api";
 
-export default function HomePage() {
+export default async function HomePage() {
+  // Server-side check: if user has a valid session, send to dashboard
+  try {
+    await auth.me();
+    redirect("/dashboard");
+  } catch {
+    // Not logged in, show landing
+  }
+
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border">
