@@ -42,4 +42,27 @@ public class InvoiceLine
             Description = description ?? string.Empty,
         };
     }
+
+    /// <summary>
+    /// Internal constructor for pre-persistence use (e.g. InvoiceGenerator building lines
+    /// before Invoice itself is persisted). Use the public factory whenever possible.
+    /// </summary>
+    internal InvoiceLine(
+        Guid invoiceId,
+        Guid resourceId,
+        Guid flavorId,
+        decimal hours,
+        decimal rate,
+        decimal amount,
+        string description)
+    {
+        Id = Guid.NewGuid();
+        InvoiceId = invoiceId;
+        ResourceId = resourceId;
+        FlavorId = flavorId;
+        Hours = hours;
+        Rate = rate;
+        Amount = amount;
+        Description = description ?? string.Empty;
+    }
 }
