@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pico.Api/Pico.Api.csproj" />
+    <Project Path="src/Pico.Application/Pico.Application.csproj" />
+    <Project Path="src/Pico.Domain/Pico.Domain.csproj" />
+    <Project Path="src/Pico.Infrastructure/Pico.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pico.Tests/Pico.Tests.csproj" />
+  </Folder>
+</Solution>

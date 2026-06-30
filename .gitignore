@@ -1,0 +1,62 @@
+# .NET build outputs
+bin/
+obj/
+*.user
+*.suo
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+**/appsettings.*.local.json
+
+# Test outputs
+TestResults/
+*.trx
+*.coverage
+coverage/
+.coverage
+*.coveragexml
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.npm/
+
+# Playwright
+playwright-report/
+test-results/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local secrets / env
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+build/
+*.tar.gz
+*.zip
+
+# DevStack / OpenStack VM
+*.qcow2
+seed.img
+
+# Logs
+*.log
+logs/
+
+# Coverage reports
+lcov.info
+*.lcov

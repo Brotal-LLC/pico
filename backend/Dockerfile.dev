@@ -1,0 +1,18 @@
+# Development image — .NET 10 SDK with hot reload
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+
+# Non-root user matching host (UID 1000, name "pixu")
+RUN groupadd --gid 1000 pixu && \
+    useradd --uid 1000 --gid pixu --shell /bin/bash --create-home pixu && \
+    mkdir -p /workspace /home/pixu/.nuget/packages && \
+    chown -R pixu:pixu /workspace /home/pixu
+
+# Tools for dev workflow
+USER pixu
+WORKDIR /workspace
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1 \
+    DOTNET_WATCH_SUPPRESS_EMOJIS=1 \
+    NUGET_PACKAGES=/home/pixu/.nuget/packages
+
+# Default: run the API with hot reload. Override in compose.yaml for migrations etc.
+CMD ["dotnet", "watch", "--project", "src/Pico.Api/Pico.Api.csproj", "run", "--no-launch-profile"]
