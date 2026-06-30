@@ -29,3 +29,7 @@ export function formatRelativeTime(date: string | Date): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return d.toLocaleDateString();
 }
+
+export function getErrorMessage(error: unknown, fallback = "Something went wrong"): string {
+  return error instanceof Error ? error.message : fallback;
+}

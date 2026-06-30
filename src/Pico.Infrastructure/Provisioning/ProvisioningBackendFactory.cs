@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Pico.Application.Provisioning;
 
 namespace Pico.Infrastructure.Provisioning;
@@ -11,27 +12,22 @@ namespace Pico.Infrastructure.Provisioning;
 /// </summary>
 public class ProvisioningBackendFactory
 {
+    private readonly IServiceProvider _sp;
     private readonly MockProvisioningBackend _mock;
-    private readonly Lazy<DockerProvisioningBackend> _docker;
-    private readonly Lazy<OpenStackProvisioningBackend> _openstack;
 
-    public ProvisioningBackendFactory(
-        MockProvisioningBackend mock,
-        Lazy<DockerProvisioningBackend> docker,
-        Lazy<OpenStackProvisioningBackend> openstack)
+    public ProvisioningBackendFactory(IServiceProvider sp, MockProvisioningBackend mock)
     {
+        _sp = sp;
         _mock = mock;
-        _docker = docker;
-        _openstack = openstack;
     }
 
     public IProvisioningBackend Resolve(string? mode)
     {
         return (mode ?? "mock").ToLowerInvariant() switch
         {
-            "docker" => _docker.Value,
-            "openstack" => _openstack.Value,
-            _ => _mock,  // default: mock
+            "docker" => _sp.GetRequiredService<DockerProvisioningBackend>(),
+            "openstack" => _sp.GetRequiredService<OpenStackProvisioningBackend>(),
+            _ => _mock,
         };
     }
 }

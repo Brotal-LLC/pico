@@ -11,8 +11,9 @@ name: pico
 #
 # Networking:
 #   - Internal: all services on `pico_net` (auto-created)
-#   - External: Caddy reverse proxy on `ingress` + `database` networks
+#   - External: Caddy reverse proxy on `ingress` network
 #     exposes pico.aamar.cloud (frontend) and pico-api.aamar.cloud (API)
+#   - For local-only runs (no Caddy), ports are exposed directly.
 
 services:
   postgres:
@@ -45,12 +46,14 @@ services:
     mem_limit: 2g
     cpus: "2.00"
     restart: unless-stopped
+    ports:
+      - "${API_PORT:-8080}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-pico};Username=${POSTGRES_USER:-pico};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       Database__AutoMigrate: "true"
-      DemoData__Enabled: "true"
+      Database__SeedDemoData: "true"
       PROVISIONING_MODE: ${PROVISIONING_MODE:-mock}
       OpenStack__AuthUrl: ${OpenStack__AuthUrl:-http://192.168.122.43:5000/v3}
       OpenStack__Username: ${OpenStack__Username:-admin}
@@ -58,28 +61,18 @@ services:
       OpenStack__ProjectName: ${OpenStack__ProjectName:-admin}
       OpenStack__Region: ${OpenStack__Region:-RegionOne}
       Cors__AllowedOrigins: ${Cors__AllowedOrigins:-http://localhost:3000}
-      # Mount host Docker socket only when PROVISIONING_MODE=docker
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       DOTNET_WATCH_SUPPRESS_EMOJIS: "1"
     volumes:
-      - ./backend:/workspace
+      - .:/workspace
       - ${HOME}/.nuget/packages:/home/pixu/.nuget/packages
-      # Mount Docker socket only when PROVISIONING_MODE=docker
       - ${DOCKER_SOCKET_MOUNT:-/dev/null:/dev/null:ro}
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - pico_net
-      - ingress
-      - database
-    labels:
-      caddy: pico-api.aamar.cloud
-      caddy.tls.dns: "cloudflare {env.CLOUDFLARE_API_TOKEN}"
-      caddy.tls.curves: "x25519mlkem768 x25519"
-      caddy.reverse_proxy: "{{upstreams 8080}}"
-      caddy.reverse_proxy.transport: http
 
   frontend:
     build:
@@ -89,8 +82,10 @@ services:
     mem_limit: 2g
     cpus: "2.00"
     restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://pico-api.aamar.cloud}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
       API_URL: http://api:8080
       NODE_ENV: development
     volumes:
@@ -100,12 +95,6 @@ services:
       - api
     networks:
       - pico_net
-      - ingress
-    labels:
-      caddy: pico.aamar.cloud
-      caddy.tls.dns: "cloudflare {env.CLOUDFLARE_API_TOKEN}"
-      caddy.tls.curves: "x25519mlkem768 x25519"
-      caddy.reverse_proxy: "{{upstreams 3000}}"
 
 volumes:
   pico-postgres-data:
@@ -116,9 +105,3 @@ volumes:
 networks:
   pico_net:
     name: pico_net
-  ingress:
-    name: ingress
-    external: true
-  database:
-    name: database
-    external: true

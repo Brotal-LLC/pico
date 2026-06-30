@@ -125,8 +125,8 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
 
         b.HasIndex(i => i.UserId);
 
-        // Map private collection
-        b.HasMany(typeof(InvoiceLine), "_lines")
+        // Map navigation property — EF Core will use the backing field automatically
+        b.HasMany(i => i.Lines)
             .WithOne()
             .HasForeignKey("InvoiceId")
             .OnDelete(DeleteBehavior.Cascade);

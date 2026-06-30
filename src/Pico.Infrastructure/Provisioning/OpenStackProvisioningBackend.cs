@@ -15,13 +15,18 @@ public class OpenStackOptions
     public string Password { get; set; } = "";
     public string ProjectName { get; set; } = "admin";
     public string Region { get; set; } = "RegionOne";
+    /// <summary>Nova compute endpoint URL. If empty, discovered from Keystone service catalog.</summary>
+    public string ComputeUrl { get; set; } = "";
+    /// <summary>Default Nova flavor ID to use when flavor mapping is not configured.</summary>
+    public string DefaultFlavorId { get; set; } = "1";
+    /// <summary>Default Nova image ID to use when image mapping is not configured.</summary>
+    public string DefaultImageId { get; set; } = "";
 }
 
 /// <summary>
-/// Real OpenStack Nova API integration. Calls DevStack's Nova endpoint to provision
-/// actual VMs. Used when PROVISIONING_MODE=openstack.
-/// Auth flow: POST to auth_url/tokens with username/password, get project-scoped token,
-/// use it for all subsequent Nova calls.
+/// OpenStack Nova API integration. Calls Nova endpoint to provision actual VMs.
+/// Used when PROVISIONING_MODE=openstack.
+/// Auth flow: POST to auth_url/auth/tokens → get X-Subject-Token header → use for Nova calls.
 /// </summary>
 public class OpenStackProvisioningBackend : IProvisioningBackend
 {
@@ -31,9 +36,10 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
     private readonly OpenStackOptions _options;
     private readonly ILogger<OpenStackProvisioningBackend> _logger;
     private TokenCache? _tokenCache;
+    private string? _computeUrl;
 
     private record TokenCache(string Token, DateTimeOffset ExpiresAt);
-    private record NovaServer(string id, string status, Dictionary<string, object> addresses);
+    private record NovaServer(string id, string status);
 
     public OpenStackProvisioningBackend(IHttpClientFactory httpClientFactory, IOptions<OpenStackOptions> options, ILogger<OpenStackProvisioningBackend> logger)
     {
@@ -47,12 +53,15 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
         try
         {
             var token = await GetTokenAsync(ct);
-            var name = $"pico-{request.Name}-{Guid.NewGuid():N}".Substring(0, 64);
+            var computeUrl = await GetComputeUrlAsync(token, ct);
+            var name = $"pico-{request.Name}-{Guid.NewGuid():N}"[..Math.Min(64, $"pico-{request.Name}-{Guid.NewGuid():N}".Length)];
 
-            // Map Pico flavor to a Nova flavor via name lookup (configured externally)
-            // For now: use the smallest available Nova flavor
-            var server = await CreateServerAsync(token, name, "1", "default-image", ct);
-            return ProvisionResult.Ok(server.id, await GetServerIpAsync(token, server.id, ct));
+            var flavorRef = _options.DefaultFlavorId;
+            var imageRef = _options.DefaultImageId;
+
+            var server = await CreateServerAsync(token, computeUrl, name, flavorRef, imageRef, ct);
+            var ip = await GetServerIpAsync(token, computeUrl, server.id, ct);
+            return ProvisionResult.Ok(server.id, ip);
         }
         catch (Exception ex)
         {
@@ -66,7 +75,8 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
         try
         {
             var token = await GetTokenAsync(ct);
-            var resp = await _http.PostAsync($"/servers/{externalId}/action",
+            var computeUrl = await GetComputeUrlAsync(token, ct);
+            var resp = await _http.PostAsync($"{computeUrl}/servers/{externalId}/action",
                 new StringContent("{\"os-start\": null}", Encoding.UTF8, "application/json"), ct);
             resp.EnsureSuccessStatusCode();
             return ProvisionResult.Ok(externalId, "");
@@ -79,7 +89,8 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
         try
         {
             var token = await GetTokenAsync(ct);
-            var resp = await _http.PostAsync($"/servers/{externalId}/action",
+            var computeUrl = await GetComputeUrlAsync(token, ct);
+            var resp = await _http.PostAsync($"{computeUrl}/servers/{externalId}/action",
                 new StringContent("{\"os-stop\": null}", Encoding.UTF8, "application/json"), ct);
             resp.EnsureSuccessStatusCode();
             return ProvisionResult.Ok(externalId, "");
@@ -92,7 +103,8 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
         try
         {
             var token = await GetTokenAsync(ct);
-            var resp = await _http.DeleteAsync($"/servers/{externalId}", ct);
+            var computeUrl = await GetComputeUrlAsync(token, ct);
+            var resp = await _http.DeleteAsync($"{computeUrl}/servers/{externalId}", ct);
             resp.EnsureSuccessStatusCode();
             return ProvisionResult.Ok(externalId, "");
         }
@@ -107,7 +119,8 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
         try
         {
             var token = await GetTokenAsync(ct);
-            var resp = await _http.GetAsync("/os-services?binary=nova-compute", ct);
+            var computeUrl = await GetComputeUrlAsync(token, ct);
+            var resp = await _http.GetAsync($"{computeUrl}/os-services?binary=nova-compute", ct);
             var ok = resp.IsSuccessStatusCode;
             return new BackendHealth("openstack", ok, ok ? "Nova reachable" : "Nova unreachable", DateTimeOffset.UtcNow);
         }
@@ -145,35 +158,71 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
             new StringContent(JsonSerializer.Serialize(authBody), Encoding.UTF8, "application/json"), ct);
         resp.EnsureSuccessStatusCode();
 
+        // Keystone v3 returns the token in the X-Subject-Token header
+        var token = resp.Headers.TryGetValues("X-Subject-Token", out var tokens)
+            ? tokens.First()
+            : throw new InvalidOperationException("Keystone did not return X-Subject-Token header");
+
         var jsonText = await resp.Content.ReadAsStringAsync(ct);
         var json = JsonDocument.Parse(jsonText);
-        var token = json.RootElement.GetProperty("token").GetProperty("id").GetString()!;
         var expiresAt = DateTimeOffset.Parse(json.RootElement.GetProperty("token").GetProperty("expires_at").GetString()!);
         _tokenCache = new TokenCache(token, expiresAt.AddMinutes(-5));
         return token;
     }
 
-    private async Task<NovaServer> CreateServerAsync(string token, string name, string flavorRef, string imageRef, CancellationToken ct)
+    private async Task<string> GetComputeUrlAsync(string token, CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(_options.ComputeUrl))
+            return _options.ComputeUrl.TrimEnd('/');
+
+        if (_computeUrl is not null) return _computeUrl;
+
+        _http.DefaultRequestHeaders.Remove("X-Auth-Token");
+        _http.DefaultRequestHeaders.Add("X-Auth-Token", token);
+
+        var resp = await _http.GetAsync($"{_options.AuthUrl}/auth/catalog", ct);
+        resp.EnsureSuccessStatusCode();
+        var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+
+        foreach (var catalog in json.RootElement.GetProperty("token").GetProperty("catalog").EnumerateArray())
+        {
+            if (catalog.GetProperty("type").GetString() == "compute")
+            {
+                foreach (var endpoint in catalog.GetProperty("endpoints").EnumerateArray())
+                {
+                    if (endpoint.GetProperty("interface").GetString() == "public")
+                    {
+                        _computeUrl = endpoint.GetProperty("url").GetString()!.TrimEnd('/');
+                        return _computeUrl;
+                    }
+                }
+            }
+        }
+
+        throw new InvalidOperationException("No compute endpoint found in Keystone service catalog");
+    }
+
+    private async Task<NovaServer> CreateServerAsync(string token, string computeUrl, string name, string flavorRef, string imageRef, CancellationToken ct)
     {
         _http.DefaultRequestHeaders.Remove("X-Auth-Token");
         _http.DefaultRequestHeaders.Add("X-Auth-Token", token);
         var body = new { server = new { name = name, flavorRef = flavorRef, imageRef = imageRef, min = 1, max = 1 } };
-        var resp = await _http.PostAsync("/servers",
+        var resp = await _http.PostAsync($"{computeUrl}/servers",
             new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"), ct);
         resp.EnsureSuccessStatusCode();
-        var jsonText = await resp.Content.ReadAsStringAsync(ct);
-        var json = JsonDocument.Parse(jsonText);
+        var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var server = json.RootElement.GetProperty("server");
-        return new NovaServer(server.GetProperty("id").GetString()!, server.GetProperty("status").GetString()!, new());
+        return new NovaServer(server.GetProperty("id").GetString()!, server.GetProperty("status").GetString()!);
     }
 
-    private async Task<string> GetServerIpAsync(string token, string serverId, CancellationToken ct)
+    private async Task<string> GetServerIpAsync(string token, string computeUrl, string serverId, CancellationToken ct)
     {
-        await Task.Delay(1000, ct);
-        var resp = await _http.GetAsync($"/servers/{serverId}", ct);
+        await Task.Delay(2000, ct);
+        _http.DefaultRequestHeaders.Remove("X-Auth-Token");
+        _http.DefaultRequestHeaders.Add("X-Auth-Token", token);
+        var resp = await _http.GetAsync($"{computeUrl}/servers/{serverId}", ct);
         if (!resp.IsSuccessStatusCode) return "127.0.0.1";
-        var jsonText = await resp.Content.ReadAsStringAsync(ct);
-        var json = JsonDocument.Parse(jsonText);
+        var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var addresses = json.RootElement.GetProperty("server").GetProperty("addresses");
         foreach (var network in addresses.EnumerateObject())
         {
@@ -181,6 +230,14 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
             {
                 var osExt = addr.TryGetProperty("OS-EXT-IPS:type", out var t) ? t.GetString() : null;
                 if (osExt == "floating") return addr.GetProperty("addr").GetString()!;
+            }
+        }
+        // Fallback: first available address
+        foreach (var network in addresses.EnumerateObject())
+        {
+            foreach (var addr in network.Value.EnumerateArray())
+            {
+                return addr.GetProperty("addr").GetString()!;
             }
         }
         return "127.0.0.1";

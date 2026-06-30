@@ -10,13 +10,13 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { InvoiceStatusBadge } from "@/components/ui/Badge";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getErrorMessage } from "@/lib/utils";
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const qc = useQueryClient();
 
-  const { data: inv, isLoading } = useQuery({
+  const { data: inv, isLoading, isError, error } = useQuery({
     queryKey: ["invoice", id],
     queryFn: () => invoices.detail(id),
   });
@@ -28,10 +28,42 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       qc.invalidateQueries({ queryKey: ["invoice", id] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Payment failed"),
+    onError: (e) => toast.error(getErrorMessage(e, "Payment failed")),
   });
 
-  if (isLoading || !inv) return <PageSpinner />;
+  if (isLoading) return <PageSpinner />;
+
+  if (isError) {
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <Link href="/billing" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <ArrowLeft className="h-3 w-3" />
+          Back to invoices
+        </Link>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">{getErrorMessage(error, "Unable to load invoice")}</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!inv) {
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <Link href="/billing" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <ArrowLeft className="h-3 w-3" />
+          Back to invoices
+        </Link>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">Invoice not found.</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -55,34 +87,36 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <CardTitle>Line items</CardTitle>
         </CardHeader>
         <CardBody className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground">
-                <th className="px-6 py-3 text-left font-medium">Description</th>
-                <th className="px-6 py-3 text-right font-medium">Hours</th>
-                <th className="px-6 py-3 text-right font-medium">Rate</th>
-                <th className="px-6 py-3 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inv.lines.map((line) => (
-                <tr key={line.id} className="border-b border-border last:border-0">
-                  <td className="px-6 py-3">{line.description}</td>
-                  <td className="px-6 py-3 text-right font-mono">{line.hours.toFixed(2)}</td>
-                  <td className="px-6 py-3 text-right font-mono">{formatCurrency(line.rate)}</td>
-                  <td className="px-6 py-3 text-right font-mono font-medium">{formatCurrency(line.amount)}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground">
+                  <th className="px-6 py-3 text-left font-medium">Description</th>
+                  <th className="px-6 py-3 text-right font-medium">Hours</th>
+                  <th className="px-6 py-3 text-right font-medium">Rate</th>
+                  <th className="px-6 py-3 text-right font-medium">Amount</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-border">
-                <td colSpan={3} className="px-6 py-3 text-right font-semibold">Total</td>
-                <td className="px-6 py-3 text-right font-mono font-bold text-lg">
-                  {formatCurrency(inv.total)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {inv.lines.map((line) => (
+                  <tr key={line.id} className="border-b border-border last:border-0">
+                    <td className="px-6 py-3">{line.description}</td>
+                    <td className="px-6 py-3 text-right font-mono">{line.hours.toFixed(2)}</td>
+                    <td className="px-6 py-3 text-right font-mono">{formatCurrency(line.rate)}</td>
+                    <td className="px-6 py-3 text-right font-mono font-medium">{formatCurrency(line.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border">
+                  <td colSpan={3} className="px-6 py-3 text-right font-semibold">Total</td>
+                  <td className="px-6 py-3 text-right font-mono font-bold text-lg">
+                    {formatCurrency(inv.total)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </CardBody>
       </Card>
 

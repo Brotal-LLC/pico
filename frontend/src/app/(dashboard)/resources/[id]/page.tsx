@@ -5,23 +5,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import {
-  Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid,
-} from "recharts";
-import { resources, ResourceDetail, ResourceEvent, ResourceUsage } from "@/lib/api";
+import { resources, ResourceDetail, ResourceEvent } from "@/lib/api";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/Badge";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { ArrowLeft, Play, Square, Trash2 } from "lucide-react";
-import { formatBytes, formatRelativeTime } from "@/lib/utils";
+import { formatBytes, formatRelativeTime, getErrorMessage } from "@/lib/utils";
+
+function dedupeEvents(items: ResourceEvent[]) {
+  const seen = new Set<string>();
+  return items.filter((event) => {
+    if (seen.has(event.id)) return false;
+    seen.add(event.id);
+    return true;
+  });
+}
 
 export default function ResourceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const qc = useQueryClient();
 
-  const { data: detail, isLoading } = useQuery({
+  const {
+    data: detail,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["resource", id],
     queryFn: () => resources.detail(id),
     refetchInterval: (q) => {
@@ -32,7 +43,11 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
     },
   });
 
-  const { data: usage, refetch: refetchUsage } = useQuery({
+  const {
+    data: usage,
+    isError: usageIsError,
+    error: usageError,
+  } = useQuery({
     queryKey: ["resource-usage", id],
     queryFn: () => resources.usage(id),
     refetchInterval: 5000,
@@ -47,7 +62,10 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
     es.onmessage = (e) => {
       try {
         const evt = JSON.parse(e.data) as ResourceEvent;
-        setEvents((prev) => [...prev, evt].slice(-50));
+        setEvents((prev) => {
+          if (prev.some((item) => item.id === evt.id)) return prev;
+          return [...prev, evt].slice(-50);
+        });
         qc.invalidateQueries({ queryKey: ["resource", id] });
       } catch {
         // Ignore keep-alive comments
@@ -65,7 +83,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
       toast.success("Resource starting");
       qc.invalidateQueries({ queryKey: ["resource", id] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Start failed"),
+    onError: (e) => toast.error(getErrorMessage(e, "Start failed")),
   });
   const stop = useMutation({
     mutationFn: () => resources.stop(id),
@@ -73,7 +91,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
       toast.success("Resource stopping");
       qc.invalidateQueries({ queryKey: ["resource", id] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Stop failed"),
+    onError: (e) => toast.error(getErrorMessage(e, "Stop failed")),
   });
   const terminate = useMutation({
     mutationFn: () => resources.terminate(id),
@@ -83,21 +101,54 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
       qc.invalidateQueries({ queryKey: ["resource", id] });
       router.push("/dashboard");
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Terminate failed"),
+    onError: (e) => toast.error(getErrorMessage(e, "Terminate failed")),
   });
 
-  if (isLoading || !detail) return <PageSpinner />;
+  if (isLoading) return <PageSpinner />;
 
-  const allEvents = [...(detail.events ?? []), ...events];
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <ArrowLeft className="h-3 w-3" />
+          Back to dashboard
+        </Link>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">{getErrorMessage(error, "Unable to load resource")}</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return (
+      <div className="space-y-6">
+        <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <ArrowLeft className="h-3 w-3" />
+          Back to dashboard
+        </Link>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">Resource not found.</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
+  const allEvents = dedupeEvents([...(detail.events ?? []), ...events]);
   const isRunning = detail.status === "Running";
   const isStopped = detail.status === "Stopped";
   const isProvisioning = detail.status === "Provisioning" || detail.status === "Created";
   const isTerminal = detail.status === "Terminated" || detail.status === "Failed";
 
-  // Build usage sparkline data — we have one point per fetch; show last 12
-  const usageData = (usage
-    ? [{ time: 0, cpu: usage.cpuPercent, ram: usage.ramMbUsed }]
-    : []);
+  const confirmTerminate = () => {
+    if (window.confirm(`Terminate ${detail.name}? This action cannot be undone.`)) {
+      terminate.mutate();
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -106,7 +157,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
         Back to dashboard
       </Link>
 
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{detail.name}</h1>
           <div className="flex items-center gap-2 mt-2">
@@ -116,7 +167,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {!isTerminal && (
             <>
               <Button
@@ -137,7 +188,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
               </Button>
               <Button
                 variant="danger"
-                onClick={() => terminate.mutate()}
+                onClick={confirmTerminate}
                 disabled={terminate.isPending}
               >
                 <Trash2 className="h-4 w-4" />
@@ -147,6 +198,14 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
           )}
         </div>
       </div>
+
+      {usageIsError && (
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">{getErrorMessage(usageError, "Unable to load usage")}</p>
+          </CardBody>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>

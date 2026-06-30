@@ -9,8 +9,8 @@ using Pico.Infrastructure.Seed;
 namespace Pico.Infrastructure;
 
 /// <summary>
-/// IHostedService: at startup, run migrations + (optionally) seed demo data.
-/// Controlled by Pico:Database:AutoMigrate and Pico:Database:SeedDemoData flags.
+/// IHostedService: at startup, runs migrations + (optionally) seeds demo data.
+/// Controlled by Database:AutoMigrate and Database:SeedDemoData flags.
 /// </summary>
 public class DatabaseInitializer : IHostedService
 {
@@ -41,14 +41,14 @@ public class DatabaseInitializer : IHostedService
         }
         else
         {
-            _logger.LogInformation("AutoMigrate=false — skipping migrations (use Database.MigrateAtStartup=true or run dotnet ef database update)");
+            _logger.LogInformation("AutoMigrate=false — skipping migrations. Using EnsureCreated.");
             await db.Database.EnsureCreatedAsync(ct);
         }
 
         if (seedDemo)
         {
             _logger.LogInformation("Seeding demo data...");
-            await seeder.SeedAsync(ct);
+            await seeder.SeedAsync(db, ct);
             _logger.LogInformation("Demo data seed complete");
         }
     }

@@ -9,10 +9,8 @@ using System.Security.Claims;
 namespace Pico.Api.Endpoints;
 
 public record SignupRequestDto(string Email, string Name, string Password);
-
 public record LoginRequestDto(string Email, string Password);
-
-public record AuthUserDto(Guid Id, string Email, string Name, string Role);
+public record AuthUserDto(Guid Id, string Email, string Name, UserRole Role);
 
 public static class AuthEndpoints
 {
@@ -20,38 +18,42 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/api/auth");
 
-        group.MapPost("/signup", async (SignupRequestDto req, IUserRepository users) =>
+        group.MapPost("/signup", async (
+            SignupRequestDto req,
+            IUserRepository userRepo,
+            IPasswordHasher hasher,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
-                return Results.BadRequest(new { error = "email and password required" });
+                return Results.BadRequest(new { title = "Validation error", detail = "Email and password are required." });
 
-            var email = req.Email.Trim().ToLowerInvariant();
-            if (await users.ExistsByEmailAsync(email, CancellationToken.None))
-                return Results.Conflict(new { error = "email already registered" });
+            if (req.Password.Length < 6)
+                return Results.BadRequest(new { title = "Validation error", detail = "Password must be at least 6 characters." });
 
-            // Demo password hashing — real implementation would use Argon2id
-            // stored format: argon2id$<algorithm>$<hash>
-            var hash = $"argon2id$dev${Convert.ToBase64String(
-                System.Security.Cryptography.SHA256.HashData(
-                    System.Text.Encoding.UTF8.GetBytes(req.Password)))}";
+            if (await userRepo.ExistsByEmailAsync(req.Email, ct))
+                return Results.Conflict(new { title = "Conflict", detail = "An account with this email already exists." });
 
-            var user = User.Create(email, req.Name, hash, UserRole.Customer);
-            await users.AddAsync(user, CancellationToken.None);
+            var hash = hasher.Hash(req.Password);
+            var user = User.Create(req.Email.Trim(), req.Name.Trim(), hash, UserRole.Customer);
+            await userRepo.AddAsync(user, ct);
+
+            await SignInAsync(ctx, user);
             return Results.Ok(ToDto(user));
         });
 
-        group.MapPost("/login", async (LoginRequestDto req, IUserRepository users, HttpContext ctx) =>
+        group.MapPost("/login", async (
+            LoginRequestDto req,
+            IUserRepository userRepo,
+            IPasswordHasher hasher,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
-            var email = req.Email?.Trim().ToLowerInvariant() ?? "";
-            var user = await users.FindByEmailAsync(email, CancellationToken.None);
-            if (user is null)
-                return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+                return Results.BadRequest(new { title = "Validation error", detail = "Email and password are required." });
 
-            // Demo auth — verify by hash prefix match (NOT production-grade)
-            var providedHash = $"argon2id$dev${Convert.ToBase64String(
-                System.Security.Cryptography.SHA256.HashData(
-                    System.Text.Encoding.UTF8.GetBytes(req.Password)))}";
-            if (user.PasswordHash != providedHash)
+            var user = await userRepo.FindByEmailAsync(req.Email.Trim(), ct);
+            if (user is null || !hasher.Verify(req.Password, user.PasswordHash))
                 return Results.Unauthorized();
 
             await SignInAsync(ctx, user);
@@ -61,53 +63,42 @@ public static class AuthEndpoints
         group.MapPost("/logout", async (HttpContext ctx) =>
         {
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            return Results.Ok(new { ok = true });
+            return Results.Ok(new { message = "Logged out" });
         });
 
         group.MapGet("/me", (HttpContext ctx) =>
         {
-            var user = GetCurrentUser(ctx);
-            return user is null
-                ? Results.Unauthorized()
-                : Results.Ok(ToDto(user));
-        });
+            var userId = GetCurrentUserId(ctx);
+            if (userId is null) return Results.Unauthorized();
+            return Results.Ok(new { id = userId.Value });
+        }).RequireAuthorization();
 
         return app;
     }
 
-    public static async Task SignInAsync(HttpContext ctx, User user)
+    private static async Task SignInAsync(HttpContext ctx, User user)
     {
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Name, user.Name),
-            new Claim(ClaimTypes.Role, user.Role.ToString()),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.Name, user.Name),
+            new(ClaimTypes.Role, user.Role.ToString()),
         };
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
         await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
     }
 
-    public static User? GetCurrentUser(HttpContext ctx)
-    {
-        var idStr = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (idStr is null || !Guid.TryParse(idStr, out var id)) return null;
-        // Synchronously resolve via scope
-        var scope = ctx.RequestServices.CreateScope();
-        var users = scope.ServiceProvider.GetRequiredService<IUserRepository>();
-        return users.FindByIdAsync(id, CancellationToken.None).GetAwaiter().GetResult();
-    }
+    private static AuthUserDto ToDto(User user) =>
+        new(user.Id, user.Email, user.Name, user.Role);
 
     public static Guid? GetCurrentUserId(HttpContext ctx)
     {
-        var idStr = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var idStr = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(idStr, out var id) ? id : null;
     }
 
     public static bool IsAdmin(HttpContext ctx) =>
         ctx.User.IsInRole(UserRole.Admin.ToString());
-
-    private static AuthUserDto ToDto(User u) =>
-        new(u.Id, u.Email, u.Name, u.Role.ToString());
 }

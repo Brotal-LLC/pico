@@ -8,7 +8,11 @@ public record ProvisionRequest(
     string Name,
     Guid FlavorId,
     Guid ImageId,
-    string UserId
+    string UserId,
+    int Vcpus = 1,
+    int RamMb = 512,
+    int DiskGb = 10,
+    string ImageName = "alpine:3.19"
 );
 
 /// <summary>Result of a provisioning backend operation.</summary>

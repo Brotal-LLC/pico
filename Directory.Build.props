@@ -6,7 +6,8 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591;CS0618;NU1903</NoWarn>
-    <NuGetAudit>false</NuGetAudit>
+    <NoWarn>$(NoWarn);1591;CS0618</NoWarn>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>direct</NuGetAuditMode>
   </PropertyGroup>
 </Project>

@@ -82,7 +82,7 @@ public static class InvoiceEndpoints
                 return Results.Conflict(new { error = "Invoice is already paid" });
 
             invoice.MarkPaid(DateTimeOffset.UtcNow);
-            repo.Update(invoice);
+            await repo.UpdateAsync(invoice, ct);
             return Results.Ok(new { ok = true, status = "Paid" });
         });
 

@@ -37,7 +37,7 @@ public interface IResourceRepository
     Task<IReadOnlyList<Resource>> ListAllAsync(CancellationToken ct);
     Task<IReadOnlyList<Resource>> ListActiveByUserAsync(Guid userId, CancellationToken ct);
     Task AddAsync(Resource resource, CancellationToken ct);
-    void Update(Resource resource);
+    Task UpdateAsync(Resource resource, CancellationToken ct);
 
     /// <summary>Append-only log of state transitions for the SSE feed.</summary>
     Task AddEventAsync(ResourceEvent evt, CancellationToken ct);
@@ -50,7 +50,7 @@ public interface IInvoiceRepository
     Task<IReadOnlyList<Invoice>> ListByUserAsync(Guid userId, CancellationToken ct);
     Task<IReadOnlyList<Invoice>> ListAllAsync(CancellationToken ct);
     Task AddAsync(Invoice invoice, CancellationToken ct);
-    void Update(Invoice invoice);
+    Task UpdateAsync(Invoice invoice, CancellationToken ct);
 }
 
 public interface IAuditLogRepository

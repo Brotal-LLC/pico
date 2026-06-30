@@ -31,7 +31,7 @@ public class FakeResourceRepository : IResourceRepository
         return Task.CompletedTask;
     }
 
-    public void Update(Resource resource) => Resources[resource.Id] = resource;
+    public Task UpdateAsync(Resource resource, CancellationToken ct) { Resources[resource.Id] = resource; return Task.CompletedTask; }
 
     public Task AddEventAsync(ResourceEvent evt, CancellationToken ct)
     {
@@ -45,12 +45,36 @@ public class FakeResourceRepository : IResourceRepository
 
 static class DictExt
 {
-    public static TValue GetOrAdd<TKey, TValue>(this Dictionary<TKey, TValue> dict, TKey key, Func<TKey, TValue> factory)
+    public static TValue GetOrAdd<TKey, TValue>(this Dictionary<TKey, TValue> dict, TKey key, Func<TKey, TValue> factory) where TKey : notnull
     {
         if (!dict.TryGetValue(key, out var v))
             dict[key] = v = factory(key);
         return v;
     }
+}
+
+/// <summary>Fake flavor repository for tests.</summary>
+public class FakeFlavorRepository : IFlavorRepository
+{
+    public Dictionary<Guid, Flavor> Flavors { get; } = new();
+    public Task<Flavor?> FindByIdAsync(Guid id, CancellationToken ct) =>
+        Task.FromResult(Flavors.TryGetValue(id, out var f) ? f : null);
+    public Task<IReadOnlyList<Flavor>> ListActiveAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Flavor>>(Flavors.Values.Where(f => f.Active).OrderBy(f => f.PricePerHour).ToList());
+    public Task<IReadOnlyList<Flavor>> ListAllAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Flavor>>(Flavors.Values.OrderBy(f => f.PricePerHour).ToList());
+    public Task AddAsync(Flavor flavor, CancellationToken ct) { Flavors[flavor.Id] = flavor; return Task.CompletedTask; }
+}
+
+/// <summary>Fake image repository for tests.</summary>
+public class FakeImageRepository : IImageRepository
+{
+    public Dictionary<Guid, Image> Images { get; } = new();
+    public Task<Image?> FindByIdAsync(Guid id, CancellationToken ct) =>
+        Task.FromResult(Images.TryGetValue(id, out var i) ? i : null);
+    public Task<IReadOnlyList<Image>> ListActiveAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Image>>(Images.Values.OrderBy(i => i.Name).ToList());
+    public Task AddAsync(Image image, CancellationToken ct) { Images[image.Id] = image; return Task.CompletedTask; }
 }
 
 /// <summary>Fake provisioning backend — controllable success/fail for tests.</summary>

@@ -19,11 +19,9 @@ public class PostgresFixture : IAsyncLifetime
         .WithImage("postgres:16-alpine")
         .WithDatabase("pico_test")
         .WithUsername("pico")
-        .WithPassword("pico")
-        .WithPortBinding(0, true);  // random host port
+        .WithPassword("pico");
 
     public PostgreSqlContainer Container { get; private set; } = null!;
-    public string ConnectionString => throw new NotImplementedException("Set via ConfigureAsync");
     private string _connStr = "";
 
     public async Task InitializeAsync()
@@ -40,17 +38,16 @@ public class PostgresFixture : IAsyncLifetime
     {
         return new DbContextOptionsBuilder<PicoDbContext>()
             .UseNpgsql(_connStr)
+            .EnableSensitiveDataLogging()
             .Options;
     }
 
-    /// <summary>Create a fresh schema (drops + migrates) and seed it.</summary>
+    /// <summary>Create a fresh schema (drops + creates) for each test.</summary>
     public async Task ResetAsync()
     {
         var options = BuildOptions();
         await using var db = new PicoDbContext(options);
         await db.Database.EnsureDeletedAsync();
         await db.Database.EnsureCreatedAsync();
-        // Apply our hand-written initial migration
-        // (EnsureCreated creates the schema from the model — sufficient for integration tests)
     }
 }

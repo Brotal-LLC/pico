@@ -49,22 +49,38 @@ public record ProvisionRequestDto(
 /// <summary>
 /// Resource lifecycle: provision, start, stop, terminate. Coordinates
 /// IProvisioningBackend (the I/O) with the IResourceRepository (persistence).
-/// Pure orchestration — no DB calls, no HTTP — fully unit-testable.
 /// </summary>
 public class ResourceService
 {
     private readonly IResourceRepository _resources;
+    private readonly IFlavorRepository _flavors;
+    private readonly IImageRepository _images;
     private readonly IProvisioningBackend _backend;
 
-    public ResourceService(IResourceRepository resources, IProvisioningBackend backend)
+    public ResourceService(
+        IResourceRepository resources,
+        IFlavorRepository flavors,
+        IImageRepository images,
+        IProvisioningBackend backend)
     {
         _resources = resources;
+        _flavors = flavors;
+        _images = images;
         _backend = backend;
     }
 
     public async Task<Result<ResourceSummaryDto>> ProvisionAsync(
         Guid userId, ProvisionRequestDto req, CancellationToken ct)
     {
+        // Validate flavor and image exist and are active
+        var flavor = await _flavors.FindByIdAsync(req.FlavorId, ct);
+        if (flavor is null || !flavor.Active)
+            return Result<ResourceSummaryDto>.Failure("Flavor not found or inactive");
+
+        var image = await _images.FindByIdAsync(req.ImageId, ct);
+        if (image is null)
+            return Result<ResourceSummaryDto>.Failure("Image not found");
+
         // Create the resource entity in Created state
         var resource = Resource.Provision(userId, req.FlavorId, req.ImageId, req.Name);
         await _resources.AddAsync(resource, ct);
@@ -72,24 +88,43 @@ public class ResourceService
             ResourceEvent.Create(resource.Id, "Created", ResourceStatus.Created, ResourceStatus.Created, "Resource created"),
             ct);
 
-        // Hand off to provisioning backend (the actual I/O)
-        var provisionReq = new ProvisionRequest(resource.Id, resource.Name, req.FlavorId, req.ImageId, userId.ToString());
+        // Hand off to provisioning backend with resolved flavor/image details
+        var provisionReq = new ProvisionRequest(
+            resource.Id, resource.Name, req.FlavorId, req.ImageId, userId.ToString(),
+            Vcpus: flavor.Vcpus, RamMb: flavor.RamMb, DiskGb: flavor.DiskGb,
+            ImageName: image.Name);
         var result = await _backend.ProvisionAsync(provisionReq, ct);
 
         if (!result.Success)
         {
-            return Result<ResourceSummaryDto>.Failure(
-                $"Provisioning backend failed: {result.Error}");
+            // Transition Created → Provisioning → Failed to record the failure properly
+            resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
+            resource.TransitionTo(ResourceStatus.Failed, $"Backend error: {result.Error}");
+            await _resources.UpdateAsync(resource, ct);
+            await _resources.AddEventAsync(
+                ResourceEvent.Create(resource.Id, "ProvisionFailed", ResourceStatus.Provisioning, ResourceStatus.Failed, result.Error ?? "Unknown error"),
+                ct);
+            return Result<ResourceSummaryDto>.Failure($"Provisioning backend failed: {result.Error}");
         }
 
-        // Persist backend-assigned ids, then transition Created → Provisioning
+        // Persist backend-assigned ids, then transition Created → Provisioning → Running
         resource.SetExternalId(result.ExternalId);
         resource.SetIpAddress(result.IpAddress);
         resource.TransitionTo(ResourceStatus.Provisioning, "Backend accepted");
-        _resources.Update(resource);
+        await _resources.UpdateAsync(resource, ct);
         await _resources.AddEventAsync(
             ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Created, ResourceStatus.Provisioning, "Backend provisioning started"),
             ct);
+
+        // For synchronous backends (mock/docker/fake), provisioning completes immediately
+        if (_backend.Mode != "openstack")
+        {
+            resource.TransitionTo(ResourceStatus.Running, "Provisioning complete");
+            await _resources.UpdateAsync(resource, ct);
+            await _resources.AddEventAsync(
+                ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Provisioning, ResourceStatus.Running, "Resource is now running"),
+                ct);
+        }
 
         return Result<ResourceSummaryDto>.Success(ToSummary(resource));
     }
@@ -102,13 +137,17 @@ public class ResourceService
         if (resource.UserId != userId)
             return Result<ResourceSummaryDto>.Failure("Forbidden");
 
+        if (resource.ExternalId is null)
+            return Result<ResourceSummaryDto>.Failure("Resource has no external id");
+
+        // Call backend first, then update state
+        var backendResult = await _backend.StartAsync(resource.ExternalId, ct);
+        if (!backendResult.Success)
+            return Result<ResourceSummaryDto>.Failure($"Backend start failed: {backendResult.Error}");
+
         var prev = resource.Status;
         resource.TransitionTo(ResourceStatus.Running, "User started");
-        var backend = await _backend.StartAsync(resource.ExternalId ?? throw new InvalidOperationException("No external id"), ct);
-        if (!backend.Success)
-            return Result<ResourceSummaryDto>.Failure($"Backend start failed: {backend.Error}");
-
-        _resources.Update(resource);
+        await _resources.UpdateAsync(resource, ct);
         await _resources.AddEventAsync(
             ResourceEvent.Create(resource.Id, "StatusChange", prev, ResourceStatus.Running, "User started resource"),
             ct);
@@ -123,13 +162,16 @@ public class ResourceService
         if (resource.UserId != userId)
             return Result<ResourceSummaryDto>.Failure("Forbidden");
 
+        if (resource.ExternalId is null)
+            return Result<ResourceSummaryDto>.Failure("Resource has no external id");
+
+        var backendResult = await _backend.StopAsync(resource.ExternalId, ct);
+        if (!backendResult.Success)
+            return Result<ResourceSummaryDto>.Failure($"Backend stop failed: {backendResult.Error}");
+
         var prev = resource.Status;
         resource.TransitionTo(ResourceStatus.Stopped, "User stopped");
-        var backend = await _backend.StopAsync(resource.ExternalId ?? throw new InvalidOperationException("No external id"), ct);
-        if (!backend.Success)
-            return Result<ResourceSummaryDto>.Failure($"Backend stop failed: {backend.Error}");
-
-        _resources.Update(resource);
+        await _resources.UpdateAsync(resource, ct);
         await _resources.AddEventAsync(
             ResourceEvent.Create(resource.Id, "StatusChange", prev, ResourceStatus.Stopped, "User stopped resource"),
             ct);
@@ -144,13 +186,17 @@ public class ResourceService
         if (resource.UserId != userId)
             return Result<ResourceSummaryDto>.Failure("Forbidden");
 
+        // Call backend first (if external id exists)
+        if (resource.ExternalId is not null)
+        {
+            var backendResult = await _backend.TerminateAsync(resource.ExternalId, ct);
+            if (!backendResult.Success)
+                return Result<ResourceSummaryDto>.Failure($"Backend terminate failed: {backendResult.Error}");
+        }
+
         var prev = resource.Status;
         resource.TransitionTo(ResourceStatus.Terminated, "User terminated");
-        var backend = await _backend.TerminateAsync(resource.ExternalId ?? throw new InvalidOperationException("No external id"), ct);
-        if (!backend.Success)
-            return Result<ResourceSummaryDto>.Failure($"Backend terminate failed: {backend.Error}");
-
-        _resources.Update(resource);
+        await _resources.UpdateAsync(resource, ct);
         await _resources.AddEventAsync(
             ResourceEvent.Create(resource.Id, "StatusChange", prev, ResourceStatus.Terminated, "User terminated resource"),
             ct);
@@ -163,10 +209,11 @@ public class ResourceService
         return resources.Select(ToSummary).ToList();
     }
 
-    public async Task<ResourceDetailDto?> GetResourceDetailAsync(Guid resourceId, CancellationToken ct)
+    public async Task<ResourceDetailDto?> GetResourceDetailAsync(Guid resourceId, Guid userId, bool isAdmin, CancellationToken ct)
     {
         var resource = await _resources.FindByIdAsync(resourceId, ct);
         if (resource is null) return null;
+        if (!isAdmin && resource.UserId != userId) return null;
         var events = await _resources.ListEventsAsync(resourceId, ct);
         return new ResourceDetailDto(
             resource.Id, resource.Name, resource.FlavorId, resource.ImageId,
@@ -177,11 +224,13 @@ public class ResourceService
                 e.Message, e.Timestamp)).ToList());
     }
 
-    public Task<ResourceUsage> GetUsageAsync(Guid resourceId, CancellationToken ct)
+    public async Task<ResourceUsage?> GetUsageAsync(Guid resourceId, Guid userId, bool isAdmin, CancellationToken ct)
     {
-        // ResourceService is pure orchestration; usage lookups delegate to backend.
-        // We pull the resource first to get externalId.
-        return _backend.GetUsageAsync(resourceId.ToString(), ct);
+        var resource = await _resources.FindByIdAsync(resourceId, ct);
+        if (resource is null) return null;
+        if (!isAdmin && resource.UserId != userId) return null;
+        if (resource.ExternalId is null) return ResourceUsage.Empty();
+        return await _backend.GetUsageAsync(resource.ExternalId, ct);
     }
 
     private static ResourceSummaryDto ToSummary(Resource r) =>

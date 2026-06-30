@@ -2,17 +2,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore as separate layer for caching
-COPY Directory.Build.props ./
-COPY src/Pico.Domain/*.csproj src/Pico.Domain/
-COPY src/Pico.Application/*.csproj src/Pico.Application/
-COPY src/Pico.Infrastructure/*.csproj src/Pico.Infrastructure/
-COPY src/Pico.Api/*.csproj src/Pico.Api/
-COPY Pico.sln ./
-RUN dotnet restore Pico.sln
+# Copy everything and restore
+COPY . .
+RUN dotnet restore src/Pico.Api/Pico.Api.csproj
 
-# Build
-COPY src/ src/
+# Publish
 RUN dotnet publish src/Pico.Api/Pico.Api.csproj \
     --configuration Release \
     --output /app/publish \
@@ -22,14 +16,17 @@ RUN dotnet publish src/Pico.Api/Pico.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Create non-root user matching host (UID 1000)
-RUN groupadd --gid 1000 pixu && \
-    useradd --uid 1000 --gid pixu --shell /bin/bash --create-home pixu && \
-    mkdir -p /app && chown -R pixu:pixu /app
+# Create non-root user — handle existing UID/GID 1000 gracefully
+RUN set -eux; \
+    if ! getent group 1000 >/dev/null; then groupadd --gid 1000 pixu; fi; \
+    if ! id -u 1000 >/dev/null 2>&1; then \
+      useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home pixu; \
+    fi; \
+    mkdir -p /app && chown -R 1000:1000 /app
 
-COPY --from=build --chown=pixu:pixu /app/publish ./
+COPY --from=build --chown=1000:1000 /app/publish ./
 
-USER pixu
+USER 1000
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production

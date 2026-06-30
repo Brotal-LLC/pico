@@ -4,21 +4,37 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { toast } from "sonner";
 import { invoices, InvoiceListItem } from "@/lib/api";
-import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
+import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { InvoiceStatusBadge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Receipt, ExternalLink } from "lucide-react";
-import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatRelativeTime, getErrorMessage } from "@/lib/utils";
 
 export default function BillingPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => invoices.list(),
   });
 
   if (isLoading) return <PageSpinner />;
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Billing</h1>
+          <p className="text-sm text-muted-foreground mt-1">Your monthly invoices</p>
+        </div>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">{getErrorMessage(error, "Unable to load invoices")}</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -41,21 +57,23 @@ export default function BillingPage() {
             <CardTitle>Invoices</CardTitle>
           </CardHeader>
           <CardBody className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="px-6 py-3 text-left font-medium">Period</th>
-                  <th className="px-6 py-3 text-left font-medium">Status</th>
-                  <th className="px-6 py-3 text-right font-medium">Total</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.map((inv) => (
-                  <InvoiceRow key={inv.id} invoice={inv} />
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="px-6 py-3 text-left font-medium">Period</th>
+                    <th className="px-6 py-3 text-left font-medium">Status</th>
+                    <th className="px-6 py-3 text-right font-medium">Total</th>
+                    <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data?.map((inv) => (
+                    <InvoiceRow key={inv.id} invoice={inv} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardBody>
         </Card>
       )}
@@ -71,7 +89,7 @@ function InvoiceRow({ invoice: inv }: { invoice: InvoiceListItem }) {
       toast.success("Invoice paid");
       qc.invalidateQueries({ queryKey: ["invoices"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Payment failed"),
+    onError: (e) => toast.error(getErrorMessage(e, "Payment failed")),
   });
 
   const start = new Date(inv.periodStart).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -89,13 +107,13 @@ function InvoiceRow({ invoice: inv }: { invoice: InvoiceListItem }) {
       <td className="px-6 py-3 text-right font-mono font-semibold">
         {formatCurrency(inv.total)}
       </td>
-      <td className="px-6 py-3 text-right space-x-2">
-        <Link href={`/billing/${inv.id}`}>
-          <Button variant="ghost" size="sm">
+      <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
+        <Button variant="ghost" size="sm" asChild>
+          <Link href={`/billing/${inv.id}`}>
             <ExternalLink className="h-3 w-3" />
             View
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         {inv.status === "Pending" && (
           <Button
             size="sm"

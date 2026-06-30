@@ -20,25 +20,26 @@ public class DockerProvisioningBackend : IProvisioningBackend
     public DockerProvisioningBackend(ILogger<DockerProvisioningBackend> logger)
     {
         _logger = logger;
-        _docker = new DockerClientConfiguration(new Uri("unix:///var/run/docker.sock"))
-            .CreateClient();
+        var dockerHost = Environment.GetEnvironmentVariable("DOCKER_HOST") ?? "unix:///var/run/docker.sock";
+        _docker = new DockerClientConfiguration(new Uri(dockerHost)).CreateClient();
     }
 
     public async Task<ProvisionResult> ProvisionAsync(ProvisionRequest request, CancellationToken ct)
     {
         try
         {
-            // Create container with placeholder — flavor-based limits applied in API layer
-            // (we don't fetch the flavor here to keep the backend pluggable)
+            // Map Pico image name to Docker image
+            var dockerImage = MapImageName(request.ImageName);
+
             var createParams = new CreateContainerParameters
             {
-                Image = "alpine:3.19",
-                Name = $"pico-{request.Name}-{Guid.NewGuid():N}".Substring(0, 64),
+                Image = dockerImage,
+                Name = $"pico-{request.Name}-{Guid.NewGuid():N}"[..Math.Min(64, $"pico-{request.Name}-{Guid.NewGuid():N}".Length)],
                 Cmd = new List<string> { "sleep", "infinity" },
                 HostConfig = new HostConfig
                 {
-                    Memory = 1_073_741_824,    // 1 GB default
-                    NanoCPUs = 1_000_000_000,  // 1 vCPU default
+                    Memory = request.RamMb * 1024L * 1024L,    // MB → bytes
+                    NanoCPUs = request.Vcpus * 1_000_000_000L,  // vCPUs → nanocpus
                     AutoRemove = false,
                 },
             };
@@ -46,7 +47,6 @@ public class DockerProvisioningBackend : IProvisioningBackend
             var response = await _docker.Containers.CreateContainerAsync(createParams, ct);
             await _docker.Containers.StartContainerAsync(response.ID, new ContainerStartParameters(), ct);
 
-            // Inspect to get IP
             var inspect = await _docker.Containers.InspectContainerAsync(response.ID, ct);
             var ip = inspect.NetworkSettings.IPAddress ?? "127.0.0.1";
 
@@ -66,10 +66,7 @@ public class DockerProvisioningBackend : IProvisioningBackend
             await _docker.Containers.StartContainerAsync(externalId, new ContainerStartParameters(), ct);
             return ProvisionResult.Ok(externalId, "");
         }
-        catch (Exception ex)
-        {
-            return ProvisionResult.Fail(ex.Message);
-        }
+        catch (Exception ex) { return ProvisionResult.Fail(ex.Message); }
     }
 
     public async Task<ProvisionResult> StopAsync(string externalId, CancellationToken ct)
@@ -79,10 +76,7 @@ public class DockerProvisioningBackend : IProvisioningBackend
             await _docker.Containers.StopContainerAsync(externalId, new ContainerStopParameters(), ct);
             return ProvisionResult.Ok(externalId, "");
         }
-        catch (Exception ex)
-        {
-            return ProvisionResult.Fail(ex.Message);
-        }
+        catch (Exception ex) { return ProvisionResult.Fail(ex.Message); }
     }
 
     public async Task<ProvisionResult> TerminateAsync(string externalId, CancellationToken ct)
@@ -93,32 +87,30 @@ public class DockerProvisioningBackend : IProvisioningBackend
                 new ContainerRemoveParameters { Force = true }, ct);
             return ProvisionResult.Ok(externalId, "");
         }
-        catch (Exception ex)
-        {
-            return ProvisionResult.Fail(ex.Message);
-        }
+        catch (Exception ex) { return ProvisionResult.Fail(ex.Message); }
     }
 
     public async Task<ResourceUsage> GetUsageAsync(string externalId, CancellationToken ct)
     {
         try
         {
-            var stats = await _docker.Containers.GetContainerStatsAsync(externalId, new ContainerStatsParameters(), ct);
-            // The Docker.DotNet 3.125.15 API returns Stream; deserialize via System.Text.Json
-            ContainerStatsResponse? parsed = null;
+            var stats = await _docker.Containers.GetContainerStatsAsync(externalId,
+                new ContainerStatsParameters { Stream = false }, ct);
+
             if (stats is Stream s)
             {
                 using var reader = new StreamReader(s);
                 var json = await reader.ReadToEndAsync(ct);
-                parsed = System.Text.Json.JsonSerializer.Deserialize<ContainerStatsResponse>(json);
-            }
-            if (parsed is null) return ResourceUsage.Empty();
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<ContainerStatsResponse>(json);
+                if (parsed is null) return ResourceUsage.Empty();
 
-            var cpuDelta = parsed.CPUStats.CPUUsage.TotalUsage - parsed.PreCPUStats.CPUUsage.TotalUsage;
-            var systemDelta = parsed.CPUStats.SystemUsage - parsed.PreCPUStats.SystemUsage;
-            var cpuPct = systemDelta > 0 ? Math.Round(100.0 * cpuDelta / systemDelta, 1) : 0.0;
-            var ramMb = parsed.MemoryStats.Usage / 1024.0 / 1024.0;
-            return new ResourceUsage(cpuPct, ramMb, 0, 0, 0, DateTimeOffset.UtcNow);
+                var cpuDelta = parsed.CPUStats.CPUUsage.TotalUsage - parsed.PreCPUStats.CPUUsage.TotalUsage;
+                var systemDelta = parsed.CPUStats.SystemUsage - parsed.PreCPUStats.SystemUsage;
+                var cpuPct = systemDelta > 0 ? Math.Round(100.0 * cpuDelta / systemDelta, 1) : 0.0;
+                var ramMb = parsed.MemoryStats.Usage / 1024.0 / 1024.0;
+                return new ResourceUsage(cpuPct, ramMb, 0, 0, 0, DateTimeOffset.UtcNow);
+            }
+            return ResourceUsage.Empty();
         }
         catch
         {
@@ -126,16 +118,26 @@ public class DockerProvisioningBackend : IProvisioningBackend
         }
     }
 
-    public Task<BackendHealth> GetHealthAsync(CancellationToken ct)
+    public async Task<BackendHealth> GetHealthAsync(CancellationToken ct)
     {
         try
         {
-            var version = _docker.System.GetSystemInfoAsync().GetAwaiter().GetResult();
-            return Task.FromResult(new BackendHealth("docker", true, $"Docker {version.ServerVersion}", DateTimeOffset.UtcNow));
+            var info = await _docker.System.GetSystemInfoAsync(ct);
+            return new BackendHealth("docker", true, $"Docker {info.ServerVersion}", DateTimeOffset.UtcNow);
         }
         catch (Exception ex)
         {
-            return Task.FromResult(new BackendHealth("docker", false, ex.Message, DateTimeOffset.UtcNow));
+            return new BackendHealth("docker", false, ex.Message, DateTimeOffset.UtcNow);
         }
     }
+
+    /// <summary>Map Pico image names to Docker image references.</summary>
+    private static string MapImageName(string picoImage) => picoImage switch
+    {
+        "ubuntu-22" => "ubuntu:22.04",
+        "ubuntu-24" => "ubuntu:24.04",
+        "debian-12" => "debian:12",
+        "alma-9" => "almalinux:9",
+        _ => "alpine:3.19",  // safe default
+    };
 }

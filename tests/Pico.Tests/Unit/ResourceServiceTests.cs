@@ -12,18 +12,28 @@ namespace Pico.Tests.Unit;
 public class ResourceServiceTests
 {
     private static readonly Guid UserId = Guid.NewGuid();
-    private static readonly Guid FlavorId = Guid.NewGuid();
-    private static readonly Guid ImageId = Guid.NewGuid();
+    private static readonly Flavor TestFlavor = Flavor.Create("pico.small", 1, 2048, 40, 0.025m, 15m, "General");
+    private static readonly Image TestImage = Image.Create("ubuntu-24", "Ubuntu", "24.04 LTS", 2);
+
+    private static (FakeResourceRepository res, FakeFlavorRepository fla, FakeImageRepository img, ResourceService svc) Setup()
+    {
+        var res = new FakeResourceRepository();
+        var fla = new FakeFlavorRepository();
+        var img = new FakeImageRepository();
+        fla.Flavors[TestFlavor.Id] = TestFlavor;
+        img.Images[TestImage.Id] = TestImage;
+        var backend = new FakeProvisioningBackend();
+        var svc = new ResourceService(res, fla, img, backend);
+        return (res, fla, img, svc);
+    }
 
     [Fact]
-    public async Task ProvisionAsync_BackendSucceeds_StoresResourceInProvisioningStatus()
+    public async Task ProvisionAsync_BackendSucceeds_ResourceReachesRunning()
     {
-        var repo = new FakeResourceRepository();
-        var backend = new FakeProvisioningBackend();
-        var service = new ResourceService(repo, backend);
+        var (repo, _, _, svc) = Setup();
 
-        var result = await service.ProvisionAsync(UserId,
-            new ProvisionRequestDto("my-vm", FlavorId, ImageId), CancellationToken.None);
+        var result = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("my-vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Single(repo.Resources);
@@ -33,47 +43,71 @@ public class ResourceServiceTests
         Assert.Equal("fake-" + resource.Id.ToString("N"), resource.ExternalId);
         Assert.Equal("10.0.0.42", resource.IpAddress);
 
-        // After ProvisionAsync, status should be Provisioning (state walked through to it)
-        Assert.Equal(Domain.Enums.ResourceStatus.Provisioning, resource.Status);
+        // After ProvisionAsync with mock backend, status should be Running
+        Assert.Equal(Domain.Enums.ResourceStatus.Running, resource.Status);
         Assert.NotEmpty(repo.Events[resource.Id]);
     }
 
     [Fact]
-    public async Task ProvisionAsync_BackendFails_FailsResultAndNoStatusChange()
+    public async Task ProvisionAsync_BackendFails_MarksFailed()
     {
         var repo = new FakeResourceRepository();
+        var fla = new FakeFlavorRepository();
+        var img = new FakeImageRepository();
+        fla.Flavors[TestFlavor.Id] = TestFlavor;
+        img.Images[TestImage.Id] = TestImage;
         var backend = new FakeProvisioningBackend { ProvisionShouldFail = true };
-        var service = new ResourceService(repo, backend);
+        var svc = new ResourceService(repo, fla, img, backend);
 
-        var result = await service.ProvisionAsync(UserId,
-            new ProvisionRequestDto("x", FlavorId, ImageId), CancellationToken.None);
+        var result = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("x", TestFlavor.Id, TestImage.Id), CancellationToken.None);
 
         Assert.False(result.IsSuccess);
         Assert.Contains("Backend declined", result.ErrorMessage);
         Assert.Single(repo.Resources);
-        // Created state since backend failed
-        Assert.Equal(Domain.Enums.ResourceStatus.Created, repo.Resources.Values.Single().Status);
+        // Should be Failed, not Created
+        Assert.Equal(Domain.Enums.ResourceStatus.Failed, repo.Resources.Values.Single().Status);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_InvalidFlavor_ReturnsFailure()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        var result = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("x", Guid.NewGuid(), TestImage.Id), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("Flavor not found", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_InvalidImage_ReturnsFailure()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        var result = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("x", TestFlavor.Id, Guid.NewGuid()), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("Image not found", result.ErrorMessage);
     }
 
     [Fact]
     public async Task StartAsync_StoppedResource_TransitionsToRunning()
     {
-        var repo = new FakeResourceRepository();
-        var backend = new FakeProvisioningBackend();
-        var service = new ResourceService(repo, backend);
+        var (repo, _, _, svc) = Setup();
 
-        // Provision first
-        var p = await service.ProvisionAsync(UserId,
-            new ProvisionRequestDto("vm", FlavorId, ImageId), CancellationToken.None);
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
         var resourceId = p.Value!.Id;
 
-        // Manually walk the resource to Stopped for the test (simulates: provisioned, started, then stopped)
+        // ProvisionAsync already reaches Running. Walk to Stopped for the test.
         var resource = repo.Resources[resourceId];
-        resource.TransitionTo(Domain.Enums.ResourceStatus.Running, "manual");  // Provisioning → Running
-        resource.TransitionTo(Domain.Enums.ResourceStatus.Stopped, "manual");  // Running → Stopped
+        // Running → Stopped is valid
+        resource.TransitionTo(Domain.Enums.ResourceStatus.Stopped, "manual");
 
-        // Now StartAsync should take Stopped → Running
-        var result = await service.StartAsync(resourceId, UserId, CancellationToken.None);
+        var result = await svc.StartAsync(resourceId, UserId, CancellationToken.None);
         Assert.True(result.IsSuccess);
         Assert.Equal(Domain.Enums.ResourceStatus.Running, repo.Resources[resourceId].Status);
     }
@@ -81,16 +115,14 @@ public class ResourceServiceTests
     [Fact]
     public async Task StartAsync_OtherUsersResource_ReturnsForbidden()
     {
-        var repo = new FakeResourceRepository();
-        var backend = new FakeProvisioningBackend();
-        var service = new ResourceService(repo, backend);
+        var (repo, _, _, svc) = Setup();
 
-        var p = await service.ProvisionAsync(UserId,
-            new ProvisionRequestDto("vm", FlavorId, ImageId), CancellationToken.None);
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
         var resourceId = p.Value!.Id;
 
         var differentUser = Guid.NewGuid();
-        var result = await service.StartAsync(resourceId, differentUser, CancellationToken.None);
+        var result = await svc.StartAsync(resourceId, differentUser, CancellationToken.None);
         Assert.False(result.IsSuccess);
         Assert.Equal("Forbidden", result.ErrorMessage);
     }
@@ -98,21 +130,43 @@ public class ResourceServiceTests
     [Fact]
     public async Task ListUserResourcesAsync_ReturnsOnlyOwn()
     {
-        var repo = new FakeResourceRepository();
-        var backend = new FakeProvisioningBackend();
-        var service = new ResourceService(repo, backend);
+        var (repo, _, _, svc) = Setup();
 
-        await service.ProvisionAsync(UserId,
-            new ProvisionRequestDto("mine-1", FlavorId, ImageId), CancellationToken.None);
-        await service.ProvisionAsync(UserId,
-            new ProvisionRequestDto("mine-2", FlavorId, ImageId), CancellationToken.None);
+        await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("mine-1", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("mine-2", TestFlavor.Id, TestImage.Id), CancellationToken.None);
 
         var other = Guid.NewGuid();
-        await service.ProvisionAsync(other,
-            new ProvisionRequestDto("other-1", FlavorId, ImageId), CancellationToken.None);
+        await svc.ProvisionAsync(other,
+            new ProvisionRequestDto("other-1", TestFlavor.Id, TestImage.Id), CancellationToken.None);
 
-        var list = await service.ListUserResourcesAsync(UserId, CancellationToken.None);
+        var list = await svc.ListUserResourcesAsync(UserId, CancellationToken.None);
         Assert.Equal(2, list.Count);
         Assert.All(list, r => Assert.Equal(UserId, repo.Resources[r.Id].UserId));
+    }
+
+    [Fact]
+    public async Task GetResourceDetailAsync_OtherUser_ReturnsNull()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+
+        var detail = await svc.GetResourceDetailAsync(p.Value!.Id, Guid.NewGuid(), false, CancellationToken.None);
+        Assert.Null(detail);
+    }
+
+    [Fact]
+    public async Task GetResourceDetailAsync_Admin_CanSeeAny()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+
+        var detail = await svc.GetResourceDetailAsync(p.Value!.Id, Guid.NewGuid(), true, CancellationToken.None);
+        Assert.NotNull(detail);
     }
 }

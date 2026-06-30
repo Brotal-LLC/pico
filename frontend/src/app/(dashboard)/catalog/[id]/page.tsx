@@ -1,16 +1,16 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { catalog, Flavor, OsImage, resources } from "@/lib/api";
+import { catalog, resources } from "@/lib/api";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { Spinner, PageSpinner } from "@/components/ui/Spinner";
 import { Cpu, MemoryStick, HardDrive, ArrowLeft, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getErrorMessage } from "@/lib/utils";
 
 export default function ProvisionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: flavorId } = use(params);
@@ -20,20 +20,31 @@ export default function ProvisionPage({ params }: { params: Promise<{ id: string
   const [imageId, setImageId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
-  const { data: flavor, isLoading: flavorLoading } = useQuery({
+  const {
+    data: flavor,
+    isLoading: flavorLoading,
+    isError: flavorIsError,
+    error: flavorError,
+  } = useQuery({
     queryKey: ["flavor", flavorId],
     queryFn: () => catalog.flavor(flavorId),
   });
 
-  const { data: images, isLoading: imagesLoading } = useQuery({
+  const {
+    data: images,
+    isLoading: imagesLoading,
+    isError: imagesIsError,
+    error: imagesError,
+  } = useQuery({
     queryKey: ["images"],
     queryFn: () => catalog.images(),
   });
 
-  // Default image selection
-  if (!imageId && images && images.length > 0) {
-    setImageId(images[0].id);
-  }
+  useEffect(() => {
+    if (!imageId && images && images.length > 0) {
+      setImageId(images[0].id);
+    }
+  }, [imageId, images]);
 
   const provision = useMutation({
     mutationFn: () =>
@@ -42,10 +53,29 @@ export default function ProvisionPage({ params }: { params: Promise<{ id: string
       qc.invalidateQueries({ queryKey: ["resources"] });
       router.push(`/resources/${r.id}`);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : "Provisioning failed"),
+    onError: (e) => setError(getErrorMessage(e, "Provisioning failed")),
   });
 
   if (flavorLoading || imagesLoading) return <PageSpinner />;
+
+  if (flavorIsError || imagesIsError) {
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <Link href="/catalog" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <ArrowLeft className="h-3 w-3" />
+          Back to catalog
+        </Link>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">
+              {getErrorMessage(flavorError ?? imagesError, "Unable to load provisioning details")}
+            </p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
   if (!flavor) return <div>Package not found.</div>;
 
   return (

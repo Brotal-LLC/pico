@@ -35,6 +35,9 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddDbContext<PicoDbContext>(opts => opts.UseNpgsql(connectionString));
 builder.Services.AddDbContextFactory<PicoDbContext>(opts => opts.UseNpgsql(connectionString));
 
+// ─── Password hashing ────────────────────────────────────────────────────
+builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
+
 // ─── Repositories ────────────────────────────────────────────────────────
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IFlavorRepository, FlavorRepository>();
@@ -46,10 +49,9 @@ builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 // ─── Provisioning backends + factory ─────────────────────────────────────
 builder.Services.AddScoped<MockProvisioningBackend>();
 builder.Services.AddScoped<DockerProvisioningBackend>();
-builder.Services.AddSingleton<OpenStackOptions>();
+builder.Services.Configure<OpenStackOptions>(builder.Configuration.GetSection("OpenStack"));
 builder.Services.AddHttpClient("openstack");
-builder.Services.AddScoped<Lazy<DockerProvisioningBackend>>();
-builder.Services.AddScoped<Lazy<OpenStackProvisioningBackend>>();
+builder.Services.AddScoped<OpenStackProvisioningBackend>();
 builder.Services.AddScoped<ProvisioningBackendFactory>();
 
 builder.Services.AddScoped<IProvisioningBackend>(sp =>
@@ -71,7 +73,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.Name = "Pico.Auth";
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Lax;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SecurePolicy = builder.Environment.IsProduction()
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
         options.Events.OnRedirectToLogin = ctx =>
@@ -86,6 +90,16 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+    options.Cookie.Name = "Pico.Antiforgery";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+});
+
+// ─── Problem Details (RFC 7807) ──────────────────────────────────────────
+builder.Services.AddProblemDetails();
 
 // ─── OpenAPI + structured logging ─────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
@@ -95,36 +109,33 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 
 app.UseCors("Default");
+
+// Forwarded headers for reverse proxies (Caddy, Cloudflare)
+app.UseForwardedHeaders();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Global error handler — converts to ProblemDetails (RFC 7807)
-app.Use(async (ctx, next) =>
+// Global exception handler → ProblemDetails
+if (!app.Environment.IsDevelopment())
 {
-    try { await next(); }
-    catch (Exception ex)
-    {
-        var logger = ctx.RequestServices.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "Unhandled exception");
-        if (!ctx.Response.HasStarted)
-        {
-            ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-            await ctx.Response.WriteAsJsonAsync(new
-            {
-                type = "https://tools.ietf.org/html/rfc7231#section-6.6.1",
-                title = "Internal Server Error",
-                status = 500,
-                detail = app.Environment.IsDevelopment() ? ex.Message : "An unexpected error occurred"
-            });
-        }
-    }
-});
+    app.UseExceptionHandler();
+}
+
+app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// ─── CSRF token endpoint ─────────────────────────────────────────────────
+app.MapGet("/api/auth/csrf-token", (Microsoft.AspNetCore.Antiforgery.IAntiforgery af, HttpContext ctx) =>
+{
+    var tokens = af.GetAndStoreTokens(ctx);
+    return Results.Ok(new { token = tokens.RequestToken });
+}).RequireAuthorization();
 
 // ─── Health ──────────────────────────────────────────────────────────────
 app.MapGet("/api/health", async (IProvisioningBackend backend) =>

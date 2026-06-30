@@ -4,7 +4,7 @@
  */
 
 // Public URL the browser uses to reach the API (set at build time via NEXT_PUBLIC_API_URL)
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5080";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export class PicoApiError extends Error {
   constructor(
@@ -32,21 +32,77 @@ interface ApiOptions {
   headers?: Record<string, string>;
 }
 
+let csrfToken: string | null = null;
+let csrfTokenPromise: Promise<string | null> | null = null;
+
+function isUnsafeMethod(method: string) {
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+function getErrorMessage(body: unknown, fallback: string) {
+  if (body && typeof body === "object" && "error" in body) {
+    const error = (body as { error?: unknown }).error;
+    if (typeof error === "string") return error;
+  }
+  return fallback;
+}
+
+async function fetchCsrfToken(): Promise<string | null> {
+  if (csrfToken) return csrfToken;
+
+  csrfTokenPromise ??= fetch(`${API_URL}/api/auth/csrf-token`, {
+    credentials: "include",
+  })
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const body = await res.json().catch(() => ({}));
+      return typeof body?.token === "string" ? body.token : null;
+    })
+    .catch(() => null)
+    .finally(() => {
+      csrfTokenPromise = null;
+    });
+
+  csrfToken = await csrfTokenPromise;
+  return csrfToken;
+}
+
 async function request<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   const { method = "GET", body, signal, headers = {} } = opts;
-  const init: RequestInit = {
-    method,
-    credentials: "include",
-    signal,
-    headers: {
+  const unsafe = isUnsafeMethod(method);
+
+  const makeRequest = async (token: string | null) => {
+    const requestHeaders: Record<string, string> = {
       "Content-Type": "application/json",
       ...headers,
-    },
+    };
+
+    if (unsafe && token) {
+      requestHeaders["X-CSRF-TOKEN"] = token;
+    }
+
+    const init: RequestInit = {
+      method,
+      credentials: "include",
+      signal,
+      headers: requestHeaders,
+    };
+
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+
+    return fetch(`${API_URL}${path}`, init);
   };
-  if (body !== undefined) {
-    init.body = JSON.stringify(body);
+
+  const token = unsafe ? await fetchCsrfToken() : null;
+  let res = await makeRequest(token);
+
+  if (unsafe && res.status === 403 && token) {
+    csrfToken = null;
+    res = await makeRequest(await fetchCsrfToken());
   }
-  const res = await fetch(`${API_URL}${path}`, init);
+
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     if (res.status === 401) {
@@ -56,7 +112,7 @@ async function request<T>(path: string, opts: ApiOptions = {}): Promise<T> {
       res.status,
       res.statusText,
       errBody,
-      errBody?.error ?? res.statusText
+      getErrorMessage(errBody, res.statusText)
     );
   }
   if (res.status === 204) return undefined as T;

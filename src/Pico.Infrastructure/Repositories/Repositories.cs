@@ -92,10 +92,10 @@ public class ResourceRepository : IResourceRepository
         await _db.SaveChangesAsync(ct);
     }
 
-    public void Update(Resource resource)
+    public async Task UpdateAsync(Resource resource, CancellationToken ct)
     {
         _db.Resources.Update(resource);
-        _db.SaveChanges();
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task AddEventAsync(ResourceEvent evt, CancellationToken ct)
@@ -120,10 +120,10 @@ public class InvoiceRepository : IInvoiceRepository
         _db.Invoices.Include(i => i.Lines).FirstOrDefaultAsync(i => i.Id == id, ct);
 
     public async Task<IReadOnlyList<Invoice>> ListByUserAsync(Guid userId, CancellationToken ct) =>
-        await _db.Invoices.Where(i => i.UserId == userId).OrderByDescending(i => i.CreatedAt).ToListAsync(ct);
+        await _db.Invoices.Include(i => i.Lines).Where(i => i.UserId == userId).OrderByDescending(i => i.CreatedAt).ToListAsync(ct);
 
     public async Task<IReadOnlyList<Invoice>> ListAllAsync(CancellationToken ct) =>
-        await _db.Invoices.OrderByDescending(i => i.CreatedAt).ToListAsync(ct);
+        await _db.Invoices.Include(i => i.Lines).OrderByDescending(i => i.CreatedAt).ToListAsync(ct);
 
     public async Task AddAsync(Invoice invoice, CancellationToken ct)
     {
@@ -131,10 +131,10 @@ public class InvoiceRepository : IInvoiceRepository
         await _db.SaveChangesAsync(ct);
     }
 
-    public void Update(Invoice invoice)
+    public async Task UpdateAsync(Invoice invoice, CancellationToken ct)
     {
         _db.Invoices.Update(invoice);
-        _db.SaveChanges();
+        await _db.SaveChangesAsync(ct);
     }
 }
 

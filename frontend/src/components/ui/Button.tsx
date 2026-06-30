@@ -1,6 +1,12 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
-import { ButtonHTMLAttributes, forwardRef } from "react";
+import {
+  ButtonHTMLAttributes,
+  cloneElement,
+  forwardRef,
+  isValidElement,
+  type ReactElement,
+} from "react";
 
 const buttonStyles = cva(
   "inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -30,15 +36,30 @@ const buttonStyles = cva(
 
 export interface ButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonStyles> {}
+    VariantProps<typeof buttonStyles> {
+  asChild?: boolean;
+}
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, ...props }, ref) => (
-    <button
-      ref={ref}
-      className={cn(buttonStyles({ variant, size }), "touch-target", className)}
-      {...props}
-    />
-  )
+  ({ className, variant, size, asChild = false, children, ...props }, ref) => {
+    const classes = cn(buttonStyles({ variant, size }), "touch-target", className);
+
+    if (asChild) {
+      if (!isValidElement(children)) return null;
+
+      const child = children as ReactElement<{ className?: string }>;
+      return cloneElement(child, {
+        ...props,
+        ref,
+        className: cn(classes, child.props.className),
+      } as React.HTMLAttributes<HTMLElement> & { ref: typeof ref });
+    }
+
+    return (
+      <button ref={ref} className={classes} {...props}>
+        {children}
+      </button>
+    );
+  }
 );
 Button.displayName = "Button";

@@ -1,66 +1,83 @@
-using System.Net.ServerSentEvents;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Pico.Application.Common;
 using Pico.Application.Provisioning;
 using Pico.Application.Resources;
-using Pico.Domain.Entities;
+using Pico.Domain.Enums;
 
 namespace Pico.Api.Endpoints;
 
-public record StartRequestDto(string? Reason);
-public record StopRequestDto(string? Reason);
-public record ProvisionEndpointRequest(string Name, Guid FlavorId, Guid ImageId);
+public record ProvisionEndpointDto(string Name, Guid FlavorId, Guid ImageId);
 
 public static class ResourceEndpoints
 {
     public static IEndpointRouteBuilder MapResourceEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/resources")
-            .RequireAuthorization();  // All resource endpoints require auth
+        var group = app.MapGroup("/api/resources").RequireAuthorization();
 
-        // List user's own resources
-        group.MapGet("", async (ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        // List user's resources
+        group.MapGet("/", async (IResourceRepository repo, HttpContext ctx, CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
-            var list = await svc.ListUserResourcesAsync(userId.Value, ct);
-            return Results.Ok(list);
+            var resources = await repo.ListByUserAsync(userId.Value, ct);
+            return Results.Ok(resources.Select(r => new
+            {
+                id = r.Id, name = r.Name, status = r.Status.ToString(),
+                flavorId = r.FlavorId, imageId = r.ImageId,
+                ipAddress = r.IpAddress, externalId = r.ExternalId,
+                createdAt = r.CreatedAt, updatedAt = r.UpdatedAt
+            }));
         });
 
         // Provision a new resource
-        group.MapPost("", async (ProvisionEndpointRequest req, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        group.MapPost("/", async (
+            ProvisionEndpointDto req,
+            ResourceService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(req.Name))
+                return Results.BadRequest(new { title = "Validation error", detail = "Name is required." });
             var result = await svc.ProvisionAsync(userId.Value,
                 new ProvisionRequestDto(req.Name, req.FlavorId, req.ImageId), ct);
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.BadRequest(new { error = result.ErrorMessage });
+            if (!result.IsSuccess)
+                return Results.BadRequest(new { title = "Provisioning failed", detail = result.ErrorMessage });
+            return Results.Created($"/api/resources/{result.Value!.Id}", result.Value);
         });
 
-        // Get resource detail (with events)
-        group.MapGet("/{id:guid}", async (Guid id, ResourceService svc, CancellationToken ct) =>
+        // Get resource detail (ownership-enforced)
+        group.MapGet("/{id:guid}", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
         {
-            var resource = await svc.GetResourceDetailAsync(id, ct);
-            return resource is null ? Results.NotFound() : Results.Ok(resource);
+            var userId = AuthEndpoints.GetCurrentUserId(ctx);
+            if (userId is null) return Results.Unauthorized();
+            var isAdmin = AuthEndpoints.IsAdmin(ctx);
+            var detail = await svc.GetResourceDetailAsync(id, userId.Value, isAdmin, ct);
+            return detail is null ? Results.NotFound() : Results.Ok(detail);
         });
 
         // Start
-        group.MapPost("/{id:guid}/start", async (Guid id, StartRequestDto req, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/start", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
             var result = await svc.StartAsync(id, userId.Value, ct);
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.BadRequest(new { error = result.ErrorMessage });
+            if (!result.IsSuccess)
+                return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            return Results.Ok(result.Value);
         });
 
         // Stop
-        group.MapPost("/{id:guid}/stop", async (Guid id, StopRequestDto req, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/stop", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
             var result = await svc.StopAsync(id, userId.Value, ct);
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.BadRequest(new { error = result.ErrorMessage });
+            if (!result.IsSuccess)
+                return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            return Results.Ok(result.Value);
         });
 
         // Terminate
@@ -69,79 +86,72 @@ public static class ResourceEndpoints
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
             var result = await svc.TerminateAsync(id, userId.Value, ct);
-            return result.IsSuccess ? Results.Ok(result.Value) : Results.BadRequest(new { error = result.ErrorMessage });
+            if (!result.IsSuccess)
+                return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            return Results.Ok(result.Value);
         });
 
-        // Usage
-        group.MapGet("/{id:guid}/usage", async (Guid id, ResourceService svc, CancellationToken ct) =>
-        {
-            var usage = await svc.GetUsageAsync(id, ct);
-            return Results.Ok(usage);
-        });
-
-        // SSE events stream — sends events as they occur
-        group.MapGet("/{id:guid}/events", async (Guid id, HttpContext ctx, Application.Common.IResourceRepository repo, CancellationToken ct) =>
+        // Usage (ownership-enforced)
+        group.MapGet("/{id:guid}/usage", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
-            if (userId is null) { ctx.Response.StatusCode = 401; return; }
+            if (userId is null) return Results.Unauthorized();
+            var isAdmin = AuthEndpoints.IsAdmin(ctx);
+            var usage = await svc.GetUsageAsync(id, userId.Value, isAdmin, ct);
+            return usage is null ? Results.NotFound() : Results.Ok(usage);
+        });
 
-            // Check resource exists and belongs to user (admin sees all)
+        // SSE events stream (ownership-enforced)
+        group.MapGet("/{id:guid}/events", async (Guid id, IResourceRepository repo, HttpContext ctx, CancellationToken ct) =>
+        {
+            var userId = AuthEndpoints.GetCurrentUserId(ctx);
+            if (userId is null) return Results.Unauthorized();
+            var isAdmin = AuthEndpoints.IsAdmin(ctx);
+
             var resource = await repo.FindByIdAsync(id, ct);
-            if (resource is null) { ctx.Response.StatusCode = 404; return; }
-            if (resource.UserId != userId && !AuthEndpoints.IsAdmin(ctx))
-            { ctx.Response.StatusCode = 403; return; }
+            if (resource is null) return Results.NotFound();
+            if (!isAdmin && resource.UserId != userId.Value) return Results.Forbid();
 
             ctx.Response.ContentType = "text/event-stream";
             ctx.Response.Headers.CacheControl = "no-cache";
             ctx.Response.Headers.Connection = "keep-alive";
 
-            // Send existing events first
-            var existing = await repo.ListEventsAsync(id, ct);
-            foreach (var evt in existing)
+            // Send existing events (catch-up)
+            var events = await repo.ListEventsAsync(id, ct);
+            foreach (var e in events)
             {
-                var json = JsonSerializer.Serialize(new
+                var sseData = JsonSerializer.Serialize(new
                 {
-                    id = evt.Id,
-                    type = evt.EventType,
-                    oldStatus = evt.OldStatus.ToString(),
-                    newStatus = evt.NewStatus.ToString(),
-                    message = evt.Message,
-                    timestamp = evt.Timestamp
+                    id = e.Id, type = e.EventType,
+                    oldStatus = e.OldStatus.ToString(), newStatus = e.NewStatus.ToString(),
+                    message = e.Message, timestamp = e.Timestamp
                 });
-                await ctx.Response.WriteAsync($"data: {json}\n\n");
+                await ctx.Response.WriteAsync($"data: {sseData}\n\n", ct);
+                await ctx.Response.Body.FlushAsync(ct);
             }
 
-            // Poll for new events (until client disconnects)
-            var lastEventId = existing.LastOrDefault()?.Timestamp ?? DateTimeOffset.UtcNow.AddMinutes(-1);
+            // Poll for new events
+            var sentIds = new HashSet<Guid>(events.Select(e => e.Id));
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(1500, ct);
-                var all = await repo.ListEventsAsync(id, ct);
-                var fresh = all.Where(e => e.Timestamp > lastEventId).ToList();
-                if (fresh.Any())
+                var newEvents = await repo.ListEventsAsync(id, ct);
+                foreach (var e in newEvents.Where(e => sentIds.Add(e.Id)))
                 {
-                    foreach (var evt in fresh)
+                    var sseData = JsonSerializer.Serialize(new
                     {
-                        var json = JsonSerializer.Serialize(new
-                        {
-                            id = evt.Id,
-                            type = evt.EventType,
-                            oldStatus = evt.OldStatus.ToString(),
-                            newStatus = evt.NewStatus.ToString(),
-                            message = evt.Message,
-                            timestamp = evt.Timestamp
-                        });
-                        await ctx.Response.WriteAsync($"data: {json}\n\n");
-                    }
-                    lastEventId = fresh.Last().Timestamp;
+                        id = e.Id, type = e.EventType,
+                        oldStatus = e.OldStatus.ToString(), newStatus = e.NewStatus.ToString(),
+                        message = e.Message, timestamp = e.Timestamp
+                    });
+                    await ctx.Response.WriteAsync($"data: {sseData}\n\n", ct);
+                    await ctx.Response.Body.FlushAsync(ct);
                 }
-                else
-                {
-                    // Keep-alive comment
-                    await ctx.Response.WriteAsync(": keep-alive\n\n");
-                }
+                await ctx.Response.WriteAsync(": keep-alive\n\n", ct);
                 await ctx.Response.Body.FlushAsync(ct);
             }
+
+            return Results.Ok();
         });
 
         return app;

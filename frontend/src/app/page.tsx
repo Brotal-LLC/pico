@@ -19,12 +19,12 @@ export default async function HomePage() {
         <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Pico</h1>
           <div className="flex gap-2">
-            <Link href="/login">
-              <Button variant="ghost">Sign in</Button>
-            </Link>
-            <Link href="/signup">
-              <Button variant="primary">Get started</Button>
-            </Link>
+            <Button variant="ghost" asChild>
+              <Link href="/login">Sign in</Link>
+            </Button>
+            <Button variant="primary" asChild>
+              <Link href="/signup">Get started</Link>
+            </Button>
           </div>
         </div>
       </header>
@@ -36,15 +36,15 @@ export default async function HomePage() {
           Pay only for what you use.
         </p>
         <div className="mt-8 flex gap-3">
-          <Link href="/signup">
-            <Button size="lg">
+          <Button size="lg" asChild>
+            <Link href="/signup">
               Create account
               <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-          <Link href="/catalog">
-            <Button variant="outline" size="lg">Browse packages</Button>
-          </Link>
+            </Link>
+          </Button>
+          <Button variant="outline" size="lg" asChild>
+            <Link href="/signup">Browse packages</Link>
+          </Button>
         </div>
       </section>
 

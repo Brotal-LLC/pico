@@ -8,15 +8,31 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Cpu, HardDrive, MemoryStick, ArrowRight } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getErrorMessage } from "@/lib/utils";
 
 export default function CatalogPage() {
-  const { data: flavors, isLoading } = useQuery({
+  const { data: flavors, isLoading, isError, error } = useQuery({
     queryKey: ["flavors"],
     queryFn: () => catalog.flavors(),
   });
 
   if (isLoading) return <PageSpinner />;
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Packages</h1>
+          <p className="text-sm text-muted-foreground mt-1">Choose a VM package to provision. Pay only for what you use.</p>
+        </div>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">{getErrorMessage(error, "Unable to load packages")}</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -66,12 +82,12 @@ function FlavorCard({ flavor }: { flavor: Flavor }) {
             <span className="font-mono text-sm">{formatCurrency(flavor.pricePerMonth)}</span>
           </div>
         </div>
-        <Link href={`/catalog/${flavor.id}`} className="block">
-          <Button className="w-full">
+        <Button className="w-full" asChild>
+          <Link href={`/catalog/${flavor.id}`}>
             Provision
             <ArrowRight className="h-4 w-4" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </CardBody>
     </Card>
   );

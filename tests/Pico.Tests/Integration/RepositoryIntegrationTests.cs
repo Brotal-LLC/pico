@@ -64,7 +64,9 @@ public class RepositoryIntegrationTests : IAsyncLifetime
         var repo = new FlavorRepository(_db);
         await repo.AddAsync(Flavor.Create("expensive", 8, 16384, 100, 1.0m, 720m, "Compute"), CancellationToken.None);
         await repo.AddAsync(Flavor.Create("cheap", 1, 512, 10, 0.005m, 3.0m, "General"), CancellationToken.None);
-        await repo.AddAsync(Flavor.Create("disabled", 2, 4096, 50, 0.5m, 360m, "Memory"), CancellationToken.None);
+        var disabled = Flavor.Create("disabled", 2, 4096, 50, 0.5m, 360m, "Memory");
+        disabled.Deactivate();
+        await repo.AddAsync(disabled, CancellationToken.None);
 
         var flavors = await repo.ListActiveAsync(CancellationToken.None);
         Assert.Equal(2, flavors.Count);
@@ -95,7 +97,7 @@ public class RepositoryIntegrationTests : IAsyncLifetime
             CancellationToken.None);
 
         resource.TransitionTo(ResourceStatus.Provisioning, "started");
-        resRepo.Update(resource);
+        await resRepo.UpdateAsync(resource, CancellationToken.None);
         await resRepo.AddEventAsync(
             ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Created, ResourceStatus.Provisioning, "begin"),
             CancellationToken.None);
@@ -123,7 +125,7 @@ public class RepositoryIntegrationTests : IAsyncLifetime
         await imageRepo.AddAsync(image, CancellationToken.None);
 
         var backend = new FakeProvisioningBackend();
-        var service = new Pico.Application.Resources.ResourceService(resRepo, backend);
+        var service = new Pico.Application.Resources.ResourceService(resRepo, flavorRepo, imageRepo, backend);
 
         // Provision
         var provisionResult = await service.ProvisionAsync(user.Id,
@@ -132,13 +134,12 @@ public class RepositoryIntegrationTests : IAsyncLifetime
         Assert.True(provisionResult.IsSuccess);
         var resourceId = provisionResult.Value!.Id;
 
-        // Start (walk through transitions first)
+        // ProvisionAsync already reaches Running. Walk to Stopped for the test.
         var r = await resRepo.FindByIdAsync(resourceId, CancellationToken.None);
         Assert.NotNull(r);
-        r!.TransitionTo(ResourceStatus.Running, "manual");
-        resRepo.Update(r);
+        Assert.Equal(ResourceStatus.Running, r!.Status);
         r.TransitionTo(ResourceStatus.Stopped, "manual");
-        resRepo.Update(r);
+        await resRepo.UpdateAsync(r, CancellationToken.None);
 
         var startResult = await service.StartAsync(resourceId, user.Id, CancellationToken.None);
         Assert.True(startResult.IsSuccess);

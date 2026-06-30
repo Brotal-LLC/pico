@@ -9,31 +9,47 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Plus, Server } from "lucide-react";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime, getErrorMessage } from "@/lib/utils";
 
 export default function DashboardPage() {
-  const { data: resourcesList, isLoading } = useQuery({
+  const { data: resourcesList, isLoading, isError, error } = useQuery({
     queryKey: ["resources"],
     queryFn: () => resources.list(),
   });
 
   if (isLoading) return <PageSpinner />;
 
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Resources</h1>
+          <p className="text-sm text-muted-foreground mt-1">Provisioned cloud instances</p>
+        </div>
+        <Card>
+          <CardBody>
+            <p className="text-sm text-error">{getErrorMessage(error, "Unable to load resources")}</p>
+          </CardBody>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Resources</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Provisioned cloud instances
           </p>
         </div>
-        <Link href="/catalog">
-          <Button>
+        <Button asChild>
+          <Link href="/catalog">
             <Plus className="h-4 w-4" />
             Provision
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
 
       {resourcesList?.length === 0 ? (
@@ -42,12 +58,12 @@ export default function DashboardPage() {
           title="No resources yet"
           description="Provision your first virtual machine to get started."
           action={
-            <Link href="/catalog">
-              <Button>
+            <Button asChild>
+              <Link href="/catalog">
                 <Plus className="h-4 w-4" />
                 Browse catalog
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           }
         />
       ) : (
@@ -56,22 +72,24 @@ export default function DashboardPage() {
             <CardTitle>Your resources</CardTitle>
           </CardHeader>
           <CardBody className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="px-6 py-3 text-left font-medium">Name</th>
-                  <th className="px-6 py-3 text-left font-medium">Status</th>
-                  <th className="px-6 py-3 text-left font-medium">IP</th>
-                  <th className="px-6 py-3 text-left font-medium">Created</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resourcesList?.map((r) => (
-                  <ResourceRow key={r.id} resource={r} />
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="px-6 py-3 text-left font-medium">Name</th>
+                    <th className="px-6 py-3 text-left font-medium">Status</th>
+                    <th className="px-6 py-3 text-left font-medium">IP</th>
+                    <th className="px-6 py-3 text-left font-medium">Created</th>
+                    <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resourcesList?.map((r) => (
+                    <ResourceRow key={r.id} resource={r} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardBody>
         </Card>
       )}
@@ -91,9 +109,9 @@ function ResourceRow({ resource: r }: { resource: ResourceSummary }) {
       <td className="px-6 py-3 font-mono text-xs">{r.ipAddress ?? "—"}</td>
       <td className="px-6 py-3 text-muted-foreground">{formatRelativeTime(r.createdAt)}</td>
       <td className="px-6 py-3 text-right">
-        <Link href={`/resources/${r.id}`}>
-          <Button variant="ghost" size="sm">View</Button>
-        </Link>
+        <Button variant="ghost" size="sm" asChild>
+          <Link href={`/resources/${r.id}`}>View</Link>
+        </Button>
       </td>
     </tr>
   );

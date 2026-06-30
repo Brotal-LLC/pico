@@ -24,6 +24,7 @@ node_modules/
 .next/
 out/
 .npm/
+tsconfig.tsbuildinfo
 
 # Playwright
 playwright-report/
