@@ -16,6 +16,11 @@ RUN dotnet publish src/Pico.Api/Pico.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
+# curl is used by the Docker healthcheck in compose.yaml
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user — handle existing UID/GID 1000 gracefully
 RUN set -eux; \
     if ! getent group 1000 >/dev/null; then groupadd --gid 1000 pixu; fi; \
