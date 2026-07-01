@@ -189,7 +189,7 @@ public class CsrfEndpointTests : IClassFixture<CsrfEndpointTests.CsrfWebApplicat
         }
     }
 
-    private sealed record CsrfTokenResponse(string Token);
+    public sealed record CsrfTokenResponse(string Token);
 
     private sealed class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {

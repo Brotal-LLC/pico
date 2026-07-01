@@ -1,5 +1,7 @@
+using Pico.Application.Billing;
 using Pico.Application.Common;
 using Pico.Application.Resources;
+using Pico.Domain.Entities;
 
 namespace Pico.Api.Endpoints;
 
@@ -67,6 +69,33 @@ public static class AdminEndpoints
             return Results.Ok(all.Select(r => new ResourceSummaryDto(
                 r.Id, r.Name, r.Status.ToString(), r.FlavorId, r.ImageId,
                 r.IpAddress, r.ExternalId, r.CreatedAt, r.UpdatedAt)));
+        });
+
+        // Admin: generate invoices for all users for a billing period.
+        // Defaults to "last 30 days ending now" when query params are omitted.
+        group.MapPost("/invoices/generate", async (
+            InvoiceGenerationService generator,
+            IAuditLogRepository auditLogs,
+            HttpContext ctx,
+            DateTimeOffset? periodStart,
+            DateTimeOffset? periodEnd,
+            CancellationToken ct) =>
+        {
+            var end = periodEnd ?? DateTimeOffset.UtcNow;
+            var start = periodStart ?? end.AddDays(-30);
+            if (start > end)
+                return Results.BadRequest(new { title = "Validation error", detail = "periodStart must be before periodEnd." });
+
+            var created = await generator.GenerateForPeriodAsync(start, end, ct);
+            var userId = AuthEndpoints.GetCurrentUserId(ctx);
+            if (userId is { } id)
+            {
+                await auditLogs.AddAsync(
+                    AuditLog.Create(id, "admin.invoices.generate", "Invoice", Guid.Empty,
+                        $"{{\"created\":{created},\"periodStart\":\"{start:O}\",\"periodEnd\":\"{end:O}\"}}"),
+                    ct);
+            }
+            return Results.Ok(new { created, periodStart = start, periodEnd = end });
         });
 
         return app;

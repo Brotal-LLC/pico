@@ -1,3 +1,4 @@
+using Pico.Application.Billing;
 using Pico.Application.Catalog;
 using Pico.Application.Common;
 using Pico.Application.Provisioning;
@@ -9,8 +10,11 @@ using Pico.Infrastructure.Repositories;
 using Pico.Infrastructure.Seed;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Pico.Api.Endpoints;
+using Pico.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,6 +47,24 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("ConnectionStrings__Default not configured");
 builder.Services.AddDbContext<PicoDbContext>(opts => opts.UseNpgsql(connectionString));
 
+// ─── Rate limiting (Gap #S2 from AUDIT_REPORT.md) ────────────────────────
+// 5 login/signup attempts per 15 minutes per IP. Rejects with 429.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth-ip", httpContext =>
+    {
+        var key = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        });
+    });
+});
+
 // ─── Password hashing ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 
@@ -69,6 +91,8 @@ builder.Services.AddScoped<IProvisioningBackend>(sp =>
 // ─── Application services ────────────────────────────────────────────────
 builder.Services.AddScoped<CatalogService>();
 builder.Services.AddScoped<ResourceService>();
+builder.Services.AddScoped<InvoiceGenerator>();
+builder.Services.AddScoped<InvoiceGenerationService>();
 
 // ─── Seed + auto-migrate ────────────────────────────────────────────────
 builder.Services.AddScoped<DataSeeder>();
@@ -138,6 +162,11 @@ app.UseCors("Default");
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Security response headers (HSTS only emitted over HTTPS, see middleware).
+app.UseSecurityHeaders(isHttpsOnly: !builder.Environment.IsEnvironment("Testing"));
+
+app.UseRateLimiter();
 
 // Global exception handler → ProblemDetails
 if (!app.Environment.IsDevelopment())

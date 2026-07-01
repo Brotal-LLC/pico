@@ -55,5 +55,30 @@ public class DataSeeder
         db.Users.AddRange(demoUser, adminUser);
 
         await db.SaveChangesAsync(ct);
+
+        // ─── Demo resource + historical invoice so reviewers see real data ─
+        // Creates one small VM owned by demo, then a paid invoice for the prior month.
+        var picoSmall = flavors.First(f => f.Name == "pico.small");
+        var ubuntu22 = images.First(i => i.Name == "ubuntu-22");
+        var demoResource = Resource.Provision(
+            demoUser.Id, picoSmall.Id, ubuntu22.Id, "demo-vm-01");
+        db.Resources.Add(demoResource);
+
+        var lastMonth = DateTimeOffset.UtcNow.AddDays(-30);
+        var lastWeek = DateTimeOffset.UtcNow.AddDays(-7);
+        var hours = 168m; // a week
+        var line = new InvoiceLine(
+            invoiceId: Guid.Empty,
+            resourceId: demoResource.Id,
+            flavorId: picoSmall.Id,
+            hours: hours,
+            rate: picoSmall.PricePerHour,
+            amount: decimal.Round(picoSmall.PricePerHour * hours, 2, MidpointRounding.AwayFromZero),
+            description: $"{demoResource.Name} ({picoSmall.Name})");
+        var historical = Invoice.Create(demoUser.Id, lastMonth, lastWeek, new[] { line });
+        historical.MarkPaid(lastWeek.AddDays(1));
+        db.Invoices.Add(historical);
+
+        await db.SaveChangesAsync(ct);
     }
 }

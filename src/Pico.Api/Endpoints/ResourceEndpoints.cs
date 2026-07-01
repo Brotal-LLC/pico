@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Pico.Application.Common;
 using Pico.Application.Provisioning;
 using Pico.Application.Resources;
+using Pico.Domain.Entities;
 using Pico.Domain.Enums;
 
 namespace Pico.Api.Endpoints;
@@ -36,6 +37,7 @@ public static class ResourceEndpoints
         group.MapPost("/", async (
             ProvisionEndpointDto req,
             ResourceService svc,
+            IAuditLogRepository auditLogs,
             HttpContext ctx,
             CancellationToken ct) =>
         {
@@ -43,10 +45,16 @@ public static class ResourceEndpoints
             if (userId is null) return Results.Unauthorized();
             if (string.IsNullOrWhiteSpace(req.Name))
                 return Results.BadRequest(new { title = "Validation error", detail = "Name is required." });
+            if (req.Name.Trim().Length > 64)
+                return Results.BadRequest(new { title = "Validation error", detail = "Name must be 64 characters or fewer." });
             var result = await svc.ProvisionAsync(userId.Value,
-                new ProvisionRequestDto(req.Name, req.FlavorId, req.ImageId), ct);
+                new ProvisionRequestDto(req.Name.Trim(), req.FlavorId, req.ImageId), ct);
             if (!result.IsSuccess)
                 return Results.BadRequest(new { title = "Provisioning failed", detail = result.ErrorMessage });
+            await auditLogs.AddAsync(
+                AuditLog.Create(userId.Value, "resource.provision", "Resource", result.Value!.Id,
+                    $"{{\"name\":\"{req.Name}\",\"flavorId\":\"{req.FlavorId}\",\"imageId\":\"{req.ImageId}\"}}"),
+                ct);
             return Results.Created($"/api/resources/{result.Value!.Id}", result.Value);
         });
 
@@ -61,35 +69,56 @@ public static class ResourceEndpoints
         });
 
         // Start
-        group.MapPost("/{id:guid}/start", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/start", async (
+            Guid id,
+            ResourceService svc,
+            IAuditLogRepository auditLogs,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
             var result = await svc.StartAsync(id, userId.Value, ct);
             if (!result.IsSuccess)
                 return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            await auditLogs.AddAsync(
+                AuditLog.Create(userId.Value, "resource.start", "Resource", id, "{}"), ct);
             return Results.Ok(result.Value);
         });
 
         // Stop
-        group.MapPost("/{id:guid}/stop", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/stop", async (
+            Guid id,
+            ResourceService svc,
+            IAuditLogRepository auditLogs,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
             var result = await svc.StopAsync(id, userId.Value, ct);
             if (!result.IsSuccess)
                 return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            await auditLogs.AddAsync(
+                AuditLog.Create(userId.Value, "resource.stop", "Resource", id, "{}"), ct);
             return Results.Ok(result.Value);
         });
 
         // Terminate
-        group.MapDelete("/{id:guid}", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", async (
+            Guid id,
+            ResourceService svc,
+            IAuditLogRepository auditLogs,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
             var userId = AuthEndpoints.GetCurrentUserId(ctx);
             if (userId is null) return Results.Unauthorized();
             var result = await svc.TerminateAsync(id, userId.Value, ct);
             if (!result.IsSuccess)
                 return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            await auditLogs.AddAsync(
+                AuditLog.Create(userId.Value, "resource.terminate", "Resource", id, "{}"), ct);
             return Results.Ok(result.Value);
         });
 

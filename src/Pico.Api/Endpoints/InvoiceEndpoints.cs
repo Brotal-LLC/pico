@@ -72,7 +72,12 @@ public static class InvoiceEndpoints
         });
 
         // Mark invoice as paid (simulated payment)
-        group.MapPost("/{id:guid}/pay", async (Guid id, IInvoiceRepository repo, HttpContext ctx, CancellationToken ct) =>
+        group.MapPost("/{id:guid}/pay", async (
+            Guid id,
+            IInvoiceRepository repo,
+            IAuditLogRepository auditLogs,
+            HttpContext ctx,
+            CancellationToken ct) =>
         {
             var invoice = await repo.FindByIdAsync(id, ct);
             if (invoice is null) return Results.NotFound();
@@ -85,6 +90,10 @@ public static class InvoiceEndpoints
 
             invoice.MarkPaid(DateTimeOffset.UtcNow);
             await repo.UpdateAsync(invoice, ct);
+            await auditLogs.AddAsync(
+                AuditLog.Create(userId!.Value, "invoice.pay", "Invoice", id,
+                    $"{{\"total\":{invoice.Total},\"periodStart\":\"{invoice.PeriodStart:O}\"}}"),
+                ct);
             return Results.Ok(new { ok = true, status = "Paid" });
         });
 

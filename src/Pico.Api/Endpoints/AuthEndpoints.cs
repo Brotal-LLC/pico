@@ -23,30 +23,46 @@ public static class AuthEndpoints
             SignupRequestDto req,
             IUserRepository userRepo,
             IPasswordHasher hasher,
+            IAuditLogRepository auditLogs,
             HttpContext ctx,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.BadRequest(new { title = "Validation error", detail = "Email and password are required." });
 
-            if (req.Password.Length < 6)
-                return Results.BadRequest(new { title = "Validation error", detail = "Password must be at least 6 characters." });
+            if (req.Email.Length > 256 || !req.Email.Contains('@'))
+                return Results.BadRequest(new { title = "Validation error", detail = "Email is not valid." });
 
-            if (await userRepo.ExistsByEmailAsync(req.Email, ct))
+            if (req.Password.Length < 8)
+                return Results.BadRequest(new { title = "Validation error", detail = "Password must be at least 8 characters." });
+
+            var name = req.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                return Results.BadRequest(new { title = "Validation error", detail = "Name is required." });
+
+            if (name.Length > 100)
+                return Results.BadRequest(new { title = "Validation error", detail = "Name must be 100 characters or fewer." });
+
+            if (await userRepo.ExistsByEmailAsync(req.Email.Trim(), ct))
                 return Results.Conflict(new { title = "Conflict", detail = "An account with this email already exists." });
 
             var hash = hasher.Hash(req.Password);
-            var user = User.Create(req.Email.Trim(), req.Name.Trim(), hash, UserRole.Customer);
+            var user = User.Create(req.Email.Trim(), name, hash, UserRole.Customer);
             await userRepo.AddAsync(user, ct);
+
+            await auditLogs.AddAsync(
+                AuditLog.Create(user.Id, "signup", "User", user.Id, $"{{\"email\":\"{user.Email}\"}}"),
+                ct);
 
             await SignInAsync(ctx, user);
             return Results.Ok(ToDto(user));
-        });
+        }).RequireRateLimiting("auth-ip");
 
         group.MapPost("/login", async (
             LoginRequestDto req,
             IUserRepository userRepo,
             IPasswordHasher hasher,
+            IAuditLogRepository auditLogs,
             HttpContext ctx,
             CancellationToken ct) =>
         {
@@ -54,16 +70,37 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { title = "Validation error", detail = "Email and password are required." });
 
             var user = await userRepo.FindByEmailAsync(req.Email.Trim(), ct);
-            if (user is null || !hasher.Verify(req.Password, user.PasswordHash))
-                return Results.Unauthorized();
+            var ok = user is not null && hasher.Verify(req.Password, user.PasswordHash);
 
-            await SignInAsync(ctx, user);
-            return Results.Ok(ToDto(user));
-        });
+            // Always log the attempt — never include the password.
+            await auditLogs.AddAsync(
+                AuditLog.Create(
+                    user?.Id,
+                    "login",
+                    "User",
+                    user?.Id ?? Guid.Empty,
+                    $"{{\"success\":{(ok ? "true" : "false")}}}"),
+                ct);
 
-        group.MapPost("/logout", async (HttpContext ctx) =>
+            if (!ok) return Results.Unauthorized();
+
+            await SignInAsync(ctx, user!);
+            return Results.Ok(ToDto(user!));
+        }).RequireRateLimiting("auth-ip");
+
+        group.MapPost("/logout", async (
+            HttpContext ctx,
+            IAuditLogRepository auditLogs,
+            CancellationToken ct) =>
         {
+            var userId = GetCurrentUserId(ctx);
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            if (userId is { } id)
+            {
+                await auditLogs.AddAsync(
+                    AuditLog.Create(id, "logout", "User", id, "{}"),
+                    ct);
+            }
             return Results.Ok(new { message = "Logged out" });
         });
 
@@ -88,7 +125,15 @@ public static class AuthEndpoints
         };
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
-        await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+        // Issue a persistent (7-day) cookie. Without this the auth cookie is
+        // session-only despite SlidingExpiration=7d. See AUDIT_REPORT §S4.
+        var props = new AuthenticationProperties
+        {
+            IsPersistent = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7),
+            AllowRefresh = true
+        };
+        await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, props);
     }
 
     private static AuthUserDto ToDto(User user) =>
