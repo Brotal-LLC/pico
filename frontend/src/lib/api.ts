@@ -4,7 +4,10 @@
  */
 
 // Public URL the browser uses to reach the API (set at build time via NEXT_PUBLIC_API_URL)
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+// Server-side uses API_URL (internal Docker network) when available
+const API_URL = typeof window === "undefined"
+  ? process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
+  : process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export class PicoApiError extends Error {
   constructor(

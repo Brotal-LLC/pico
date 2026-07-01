@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
-import { ArrowRight, Cloud } from "lucide-react";
+import { ArrowRight, Cloud, Activity, Receipt } from "lucide-react";
 import { auth } from "@/lib/api";
 
 export default async function HomePage() {
@@ -43,7 +43,7 @@ export default async function HomePage() {
             </Link>
           </Button>
           <Button variant="outline" size="lg" asChild>
-            <Link href="/signup">Browse packages</Link>
+            <Link href="/catalog">Browse packages</Link>
           </Button>
         </div>
       </section>
@@ -58,12 +58,14 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="border border-border rounded-lg p-6">
+            <Activity className="h-6 w-6 mb-3 text-accent" />
             <h3 className="font-semibold">Usage metering</h3>
             <p className="text-sm text-muted-foreground mt-1">
               Real-time CPU, RAM, and network stats. No surprises on your bill.
             </p>
           </div>
           <div className="border border-border rounded-lg p-6">
+            <Receipt className="h-6 w-6 mb-3 text-accent" />
             <h3 className="font-semibold">Transparent billing</h3>
             <p className="text-sm text-muted-foreground mt-1">
               Hourly and monthly pricing. Monthly invoices with detailed line items.
