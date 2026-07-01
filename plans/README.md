@@ -27,8 +27,10 @@ Pre-existing working tree note: before this audit wrote plans, `git status --sho
 | 001 | Harden resource lifecycle actions before backend side effects | P1 | M | — | DONE |
 | 002 | Restore the current-user session contract | P1 | S | — | DONE |
 | 003 | Enable real CSRF validation for cookie-authenticated mutations | P1 | M | — | DONE |
-| 004 | Clear high-severity dependency advisories | P1 | M | — | TODO |
-| 005 | Make the pre-commit script a real quality gate | P2 | S | — | TODO |
+| 004 | Clear high-severity dependency advisories | P1 | M | — | DONE |
+| 005 | Make the pre-commit script a real quality gate | P2 | S | — | DONE |
+
+> **All five plans from the cycle-1 audit pass are now DONE.** Closing evidence: `dotnet list package --vulnerable --include-transitive` reports zero vulnerable packages across all 5 projects (`Pico.Domain`, `Pico.Application`, `Pico.Infrastructure`, `Pico.Api`, `Pico.Tests`). `scripts/pre-commit.sh` uses `set -euo pipefail` and runs the full gate (`dotnet build && dotnet test --filter !Integration && npx tsc --noEmit && npx eslint . && npx vitest run`) without any `|| true` masking. See commits `5969e8a` (security/audit/infra), `18d8a8b` (dependency / healthchecks / npm ci), `8883b67`–`5c44b98` (over-delivery work) and `650ab57` (final audit rewrite).
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
