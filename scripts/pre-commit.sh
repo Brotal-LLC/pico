@@ -17,4 +17,7 @@ echo "  → frontend typecheck"
 echo "  → frontend lint"
 (cd frontend && npx eslint .)
 
+echo "  → frontend tests (vitest)"
+(cd frontend && npx vitest run --reporter=default)
+
 echo "==> All checks passed"
