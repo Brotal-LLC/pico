@@ -2,9 +2,9 @@
 
 This document is the **single source of truth** for the FGL take-home brief
 (`lead_full_stack_take_home_tests.md.pdf`) and how PICO satisfies each
-requirement. Sections 1–8 mirror the brief's structure; §9–11 are Pico-specific
-specifications and aren't in the original PDF but are needed to make the
-submission self-contained.
+requirement. Sections 1–8 mirror the brief's structure; §9–13 are
+Pico-specific specifications and aren't in the original PDF but are needed to
+make the submission self-contained.
 
 > **Reviewer quick links:** [Submission requirements §1](#1-submission-requirements-must-have) · [Review rubric §4](#4-review-rubric-weighted-kpis) · [PICO-specific requirements §11](#11-pico-specific-requirements-from-the-brief-option-2) · [KPI scorecard §8](#8-kpi-scorecard-target--95100)
 
@@ -33,11 +33,14 @@ external services. It exercises the rubric areas the brief grades on:
 
 ## Timeline
 
-| Milestone                            | Date / time (Asia/Dhaka) |
-|--------------------------------------|---------------------------|
-| Test shared                          | Monday, **8 June 2026**   |
-| Submission deadline                  | Sunday, **14 June 2026** at 09:00 |
-| Final push + PR ready for review     | before 08:00, 14 June     |
+| Milestone                            | Date / time (Asia/Dhaka, BDT) |
+|--------------------------------------|-------------------------------|
+| Test shared                          | Monday, **29 June 2026**, **19:10** |
+| Submission deadline                  | Sunday, **5 July 2026** at **09:00** |
+| Final push + PR ready for review     | before 08:00, 5 July          |
+
+> The original PDF used different dates (8 June → 14 June 2026). This document
+> reflects the dates that actually apply to this submission.
 
 ---
 
@@ -67,9 +70,9 @@ external services. It exercises the rubric areas the brief grades on:
 
 **How PICO complies:**
 
-- AI assistance used heavily. See [`AI_USAGE.md`](./AI_USAGE.md) for a per-area reflection on what was generated, what was reviewed manually, what was rejected.
-- All AI-generated code was reviewed line-by-line; tests written first where requirements demanded, integration tests use real Postgres (Testcontainers), all 152 tests pass in the pre-commit gate.
-- The pre-commit hook (`scripts/pre-commit.sh`) runs `dotnet build && dotnet test && npm run typecheck && npm run lint && npm run test:run` so reviewed-by-someone is replaced with reviewed-by-the-machine for every push.
+- AI assistance used heavily. See [`AI_USAGE.md`](./AI_USAGE.md) for a per-area reflection on what was generated, what was reviewed manually, and what was rejected or rewritten.
+- Tests were written first where requirements demanded; integration tests use real Postgres (Testcontainers); all 152 tests pass in the pre-commit gate (`dotnet build && dotnet test && npm run typecheck && npm run lint && npm run test:run`).
+- The pre-commit hook (`scripts/pre-commit.sh`) replaces "reviewed by someone" with "reviewed by the machine" for every push.
 - I still own every architectural decision and would defend each tradeoff (see `DESIGN.md`).
 
 ---
