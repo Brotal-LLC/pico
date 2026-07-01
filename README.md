@@ -170,8 +170,7 @@ pico/
 │   ├── Pico.Infrastructure/   # EF Core DbContext + configs, repositories, 3 provisioning backends, seeder
 │   └── Pico.Api/              # Minimal API endpoints, DI wiring, cookie auth, CORS, problem details
 ├── frontend/                   # Next.js 16 app
-├── plans/                    # Historical execution plans (cycle-1 audit over-delivery, all shipped)
-├── openspec/                 # Spec-driven development artifacts (proposal, tasks, specs)
+├── openspec/                 # Spec-driven development artifacts (proposal, tasks, 4 capability specs)
 ├── compose.yaml              # Docker Compose: postgres + api + frontend
 ├── .env.example              # All env vars documented
 ├── backend/Dockerfile.{dev,prod}

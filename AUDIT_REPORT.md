@@ -243,8 +243,11 @@ The repo's documentation is intentionally minimal. Each doc has a single owner; 
 | 2 | [`REQUIREMENTS.md`](./REQUIREMENTS.md) | Walk the brief section-by-section; verify each rubric criterion maps to code; run the verification recipe. |
 | 3 | [`DESIGN.md`](./DESIGN.md) | Understand the **why** behind major architectural decisions, accepted tradeoffs, and the path forward. |
 | 4 | [`AI_USAGE.md`](./AI_USAGE.md) | See the honest reflection on AI-generated vs reviewed vs rejected code. |
-| 5 | [`AUDIT_REPORT.md`](./AUDIT_REPORT.md) (this file) | Verify the audit closure: 96.0 score, 45-of-45 findings closed, reproduction recipe, out-of-scope items. |
+| 5 | [`AUDIT_REPORT.md`](./AUDIT_REPORT.md) (this file) | Verify the audit closure: 96.0 score, 45-finding ledger, reproduction recipe, out-of-scope items. |
 | 6 | [`openspec/changes/pico-self-service-cloud/tasks.md`](./openspec/changes/pico-self-service-cloud/tasks.md) | Inspect the task-level truth table with §13 (over-delivery items) and §14 (explicit NOT-shipped with reasons). |
+| — | [`openspec/changes/pico-self-service-cloud/proposal.md`](./openspec/changes/pico-self-service-cloud/proposal.md) | The proposal-of-record (why, what changes, impact). Read when you want the one-page framing. |
+| — | [`openspec/changes/pico-self-service-cloud/specs/{identity,billing,catalog,provisioning}/spec.md`](./openspec/changes/pico-self-service-cloud/specs/) | Behavioral contracts for each capability (SHALL-style requirements). |
+| — | [`openspec/changes/archive/pico-self-service-cloud-design.md`](./openspec/changes/archive/pico-self-service-cloud-design.md) | Archived design doc from the initial spec phase. Provenance only. |
 
 A reviewer can go from `git clone https://github.com/Brotal-LLC/pico` → `docker compose up --build` → see the demo in under 90 seconds, with three clicks (landing → catalog → provision).
 
