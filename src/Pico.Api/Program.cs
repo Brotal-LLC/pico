@@ -8,6 +8,7 @@ using Pico.Infrastructure.Provisioning;
 using Pico.Infrastructure.Repositories;
 using Pico.Infrastructure.Seed;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Pico.Api.Endpoints;
 
@@ -15,6 +16,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 builder.Configuration.AddEnvironmentVariables();
+
+// ─── Reverse proxy headers (Caddy / Cloudflare) ──────────────────────────
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // ─── CORS ────────────────────────────────────────────────────────────────
 var corsOriginsConfig = builder.Configuration["Cors:AllowedOrigins"] ?? "http://localhost:3000";
@@ -71,10 +80,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     {
         options.Cookie.Name = "Pico.Auth";
         options.Cookie.HttpOnly = true;
+        options.Cookie.Domain = builder.Configuration["Cookie:Domain"];
         options.Cookie.SameSite = SameSiteMode.Lax;
-        options.Cookie.SecurePolicy = builder.Environment.IsProduction()
-            ? CookieSecurePolicy.Always
-            : CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SecurePolicy = builder.Environment.IsEnvironment("Testing")
+            ? CookieSecurePolicy.SameAsRequest
+            : CookieSecurePolicy.Always;
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
         options.Events.OnRedirectToLogin = ctx =>
@@ -94,7 +104,11 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "X-CSRF-TOKEN";
     options.Cookie.Name = "Pico.Antiforgery";
     options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.Domain = builder.Configuration["Cookie:Domain"];
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsEnvironment("Testing")
+        ? CookieSecurePolicy.SameAsRequest
+        : CookieSecurePolicy.Always;
 });
 
 // ─── Problem Details (RFC 7807) ──────────────────────────────────────────
@@ -106,10 +120,8 @@ builder.Services.AddOpenApi();
 // ─── Build & configure pipeline ──────────────────────────────────────────
 var app = builder.Build();
 
-app.UseCors("Default");
-
-// Forwarded headers for reverse proxies (Caddy, Cloudflare)
 app.UseForwardedHeaders();
+app.UseCors("Default");
 
 app.UseAuthentication();
 app.UseAuthorization();

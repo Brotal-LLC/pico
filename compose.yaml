@@ -61,6 +61,7 @@ services:
       OpenStack__ProjectName: ${OpenStack__ProjectName:-admin}
       OpenStack__Region: ${OpenStack__Region:-RegionOne}
       Cors__AllowedOrigins: ${Cors__AllowedOrigins:-https://pico.aamar.cloud}
+      Cookie__Domain: ${Cookie__Domain:-.aamar.cloud}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       DOTNET_WATCH_SUPPRESS_EMOJIS: "1"
@@ -81,7 +82,9 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://pico-api.aamar.cloud}
     container_name: pico-frontend
     mem_limit: 2g
     cpus: "2.00"
@@ -91,9 +94,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://pico-api.aamar.cloud}
       API_URL: http://api:8080
-      NODE_ENV: development
-    volumes:
-      - ./frontend:/workspace
+      NODE_ENV: production
     depends_on:
       - api
     networks:
@@ -102,6 +103,7 @@ services:
     labels:
       caddy: pico.aamar.cloud
       caddy.reverse_proxy: "{{upstreams 3000}}"
+      caddy.reverse_proxy.flush_interval: "-1"
 
 volumes:
   pico-postgres-data:
