@@ -13,7 +13,9 @@ public static class ResourceEndpoints
 {
     public static IEndpointRouteBuilder MapResourceEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/resources").RequireAuthorization();
+        var group = app.MapGroup("/api/resources")
+            .RequireAuthorization()
+            .RequireAntiforgeryForUnsafeMethods();
 
         // List user's resources
         group.MapGet("/", async (IResourceRepository repo, HttpContext ctx, CancellationToken ct) =>

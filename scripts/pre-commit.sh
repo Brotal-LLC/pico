@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Pre-commit hook: lints and tests before each commit.
 # Install: ln -s ../../scripts/pre-commit.sh .git/hooks/pre-commit
-set -e
+set -euo pipefail
 
 echo "==> Pre-commit checks"
 
 echo "  → dotnet build"
-dotnet build --nologo --verbosity quiet 2>&1 | tail -3
+dotnet build --nologo --verbosity quiet
 
 echo "  → dotnet test (unit only)"
-dotnet test --nologo --filter "FullyQualifiedName!~Integration" --verbosity quiet 2>&1 | tail -3
+dotnet test --nologo --filter "FullyQualifiedName!~Integration" --verbosity quiet
 
 echo "  → frontend typecheck"
-cd frontend && npx tsc --noEmit 2>&1 | tail -3
+(cd frontend && npx tsc --noEmit)
 
 echo "  → frontend lint"
-npx eslint . 2>&1 | tail -5 || true
+(cd frontend && npx eslint .)
 
 echo "==> All checks passed"

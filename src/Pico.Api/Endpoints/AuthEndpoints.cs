@@ -16,7 +16,8 @@ public static class AuthEndpoints
 {
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/auth");
+        var group = app.MapGroup("/api/auth")
+            .RequireAntiforgeryForUnsafeMethods();
 
         group.MapPost("/signup", async (
             SignupRequestDto req,
@@ -68,9 +69,9 @@ public static class AuthEndpoints
 
         group.MapGet("/me", (HttpContext ctx) =>
         {
-            var userId = GetCurrentUserId(ctx);
-            if (userId is null) return Results.Unauthorized();
-            return Results.Ok(new { id = userId.Value });
+            var user = GetCurrentUser(ctx);
+            if (user is null) return Results.Unauthorized();
+            return Results.Ok(user);
         }).RequireAuthorization();
 
         return app;
@@ -92,6 +93,22 @@ public static class AuthEndpoints
 
     private static AuthUserDto ToDto(User user) =>
         new(user.Id, user.Email, user.Name, user.Role);
+
+    public static AuthUserDto? GetCurrentUser(HttpContext ctx)
+    {
+        var id = GetCurrentUserId(ctx);
+        var email = ctx.User.FindFirstValue(ClaimTypes.Email);
+        var name = ctx.User.FindFirstValue(ClaimTypes.Name);
+        var roleStr = ctx.User.FindFirstValue(ClaimTypes.Role);
+
+        if (id is null || email is null || name is null || roleStr is null)
+            return null;
+
+        if (!Enum.TryParse<UserRole>(roleStr, out var role))
+            return null;
+
+        return new AuthUserDto(id.Value, email, name, role);
+    }
 
     public static Guid? GetCurrentUserId(HttpContext ctx)
     {

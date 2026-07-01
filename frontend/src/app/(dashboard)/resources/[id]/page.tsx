@@ -173,7 +173,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
               <Button
                 variant="outline"
                 onClick={() => start.mutate()}
-                disabled={start.isPending || isRunning || isProvisioning}
+                disabled={start.isPending || !isStopped}
               >
                 <Play className="h-4 w-4" />
                 Start
@@ -181,7 +181,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
               <Button
                 variant="outline"
                 onClick={() => stop.mutate()}
-                disabled={stop.isPending || !isRunning}
+                disabled={stop.isPending || !isRunning || isProvisioning}
               >
                 <Square className="h-4 w-4" />
                 Stop

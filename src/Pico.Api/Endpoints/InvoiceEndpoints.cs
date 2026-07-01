@@ -42,7 +42,9 @@ public static class InvoiceEndpoints
 {
     public static IEndpointRouteBuilder MapInvoiceEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/invoices").RequireAuthorization();
+        var group = app.MapGroup("/api/invoices")
+            .RequireAuthorization()
+            .RequireAntiforgeryForUnsafeMethods();
 
         // List user's own invoices
         group.MapGet("", async (IInvoiceRepository repo, HttpContext ctx, CancellationToken ct) =>

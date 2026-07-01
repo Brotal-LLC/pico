@@ -132,7 +132,7 @@ app.MapGet("/api/auth/csrf-token", (Microsoft.AspNetCore.Antiforgery.IAntiforger
 {
     var tokens = af.GetAndStoreTokens(ctx);
     return Results.Ok(new { token = tokens.RequestToken });
-}).RequireAuthorization();
+}).AllowAnonymous();
 
 // ─── Health ──────────────────────────────────────────────────────────────
 app.MapGet("/api/health", async (IProvisioningBackend backend) =>
