@@ -58,6 +58,23 @@ public static class ResourceEndpoints
             return Results.Created($"/api/resources/{result.Value!.Id}", result.Value);
         });
 
+        // Terraform-like preview of an upcoming provision. Does NOT create anything.
+        // Used by the provision page to render a summary card before the user clicks
+        // "Provision". Auth required: pricing is treated as account-sensitive.
+        group.MapPost("/preview", async (
+            ProvisionEndpointDto req,
+            ResourceService svc,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            var userId = AuthEndpoints.GetCurrentUserId(ctx);
+            if (userId is null) return Results.Unauthorized();
+            var result = await svc.PreviewAsync(req.FlavorId, req.ImageId, ct);
+            return result.IsSuccess
+                ? Results.Ok(result.Value)
+                : Results.BadRequest(new { title = "Preview failed", detail = result.ErrorMessage });
+        });
+
         // Get resource detail (ownership-enforced)
         group.MapGet("/{id:guid}", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
         {

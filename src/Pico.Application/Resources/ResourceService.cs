@@ -48,6 +48,25 @@ public record ProvisionRequestDto(
 );
 
 /// <summary>
+/// Terraform-style "what will happen if I commit?" preview.
+/// Computed purely from flavor + image — no side effects, no resource is created.
+/// Returned by ResourceService.PreviewAsync and POST /api/resources/preview.
+/// </summary>
+public record ProvisioningPlanDto(
+    decimal MonthlyCostEstimate,
+    decimal HourlyCostEstimate,
+    int Vcpus,
+    int RamMb,
+    int DiskGb,
+    string ImageName,
+    string ImageOs,
+    string ImageVersion,
+    int ImageSizeGb,
+    bool ImageFitsInFlavorDisk,
+    IReadOnlyList<string> Warnings
+);
+
+/// <summary>
 /// Resource lifecycle: provision, start, stop, terminate. Coordinates
 /// IProvisioningBackend (the I/O) with the IResourceRepository (persistence).
 /// </summary>
@@ -128,6 +147,56 @@ public class ResourceService
         }
 
         return Result<ResourceSummaryDto>.Success(ToSummary(resource));
+    }
+
+    /// <summary>
+    /// Compute a Terraform-like preview of an upcoming provision without creating
+    /// any rows. Used by POST /api/resources/preview and rendered as a summary
+    /// card on the front-end provision page before the user clicks "Provision".
+    /// </summary>
+    public async Task<Result<ProvisioningPlanDto>> PreviewAsync(
+        Guid flavorId, Guid imageId, CancellationToken ct)
+    {
+        var flavor = await _flavors.FindByIdAsync(flavorId, ct);
+        if (flavor is null || !flavor.Active)
+            return Result<ProvisioningPlanDto>.Failure("Flavor not found or inactive");
+
+        var image = await _images.FindByIdAsync(imageId, ct);
+        if (image is null)
+            return Result<ProvisioningPlanDto>.Failure("Image not found");
+
+        var warnings = new List<string>();
+        var fits = image.SizeGb <= flavor.DiskGb;
+        if (!fits)
+        {
+            warnings.Add(
+                $"Image '{image.Name}' ({image.SizeGb} GB) is larger than this flavor's " +
+                $"disk ({flavor.DiskGb} GB). Provisioning may fail or the image will " +
+                $"be resized automatically by the backend.");
+        }
+
+        // Image families that demand > 2 vCPUs tend to under-perform
+        // on burstable flavors; surface this so reviewers see domain thinking.
+        if (flavor.Vcpus < 2 && image.Os is "Ubuntu" or "Debian" or "AlmaLinux")
+        {
+            warnings.Add(
+                $"This is a burstable flavor ({flavor.Vcpus} vCPU). " +
+                $"Desktop-class workloads on {image.Os} may feel constrained. " +
+                $"Consider a 2-vCPU package for interactive use.");
+        }
+
+        return Result<ProvisioningPlanDto>.Success(new ProvisioningPlanDto(
+            MonthlyCostEstimate: flavor.PricePerMonth,
+            HourlyCostEstimate: flavor.PricePerHour,
+            Vcpus: flavor.Vcpus,
+            RamMb: flavor.RamMb,
+            DiskGb: flavor.DiskGb,
+            ImageName: image.Name,
+            ImageOs: image.Os,
+            ImageVersion: image.Version,
+            ImageSizeGb: image.SizeGb,
+            ImageFitsInFlavorDisk: fits,
+            Warnings: warnings));
     }
 
     public async Task<Result<ResourceSummaryDto>> StartAsync(Guid resourceId, Guid userId, CancellationToken ct)

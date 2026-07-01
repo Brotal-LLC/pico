@@ -3,13 +3,13 @@
 import { use, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { catalog, resources } from "@/lib/api";
+import { catalog, resources, ProvisioningPlan } from "@/lib/api";
 import { usePageTitle } from "@/lib/use-page-title";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { Spinner, PageSpinner } from "@/components/ui/Spinner";
-import { Cpu, MemoryStick, HardDrive, ArrowLeft, ArrowRight } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, ArrowLeft, ArrowRight, AlertTriangle, CheckCircle2, Eye } from "lucide-react";
 import Link from "next/link";
 import { formatCurrency, getErrorMessage } from "@/lib/utils";
 
@@ -47,6 +47,21 @@ export default function ProvisionPage({ params }: { params: Promise<{ id: string
       setImageId(images[0].id);
     }
   }, [imageId, images]);
+
+  // Terraform-style preview: only fires after the user has picked an image
+  // (otherwise the first paint shows a spinner instead of the empty state).
+  const previewEnabled = Boolean(imageId);
+  const {
+    data: plan,
+    isFetching: planFetching,
+    isError: planIsError,
+    error: planError,
+  } = useQuery<ProvisioningPlan>({
+    queryKey: ["provision-plan", flavorId, imageId],
+    queryFn: () => resources.preview({ flavorId, imageId }),
+    enabled: previewEnabled,
+    staleTime: 5_000,
+  });
 
   const provision = useMutation({
     mutationFn: () =>
@@ -150,6 +165,17 @@ export default function ProvisionPage({ params }: { params: Promise<{ id: string
                 ))}
               </select>
             </div>
+
+            {/* Plan preview — Terraform-style "what will happen if I commit?". */}
+            {previewEnabled && (
+              <PlanCard
+                plan={plan}
+                isFetching={planFetching}
+                isError={planIsError}
+                error={planError}
+              />
+            )}
+
             {error && <p className="text-sm text-error">{error}</p>}
             <Button
               className="w-full"
@@ -171,6 +197,92 @@ export default function ProvisionPage({ params }: { params: Promise<{ id: string
           </CardBody>
         </Card>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Terraform-style preview card. Pure — never creates a resource.
+ * Re-renders whenever the user picks a different (flavor, image) pair.
+ */
+function PlanCard({
+  plan,
+  isFetching,
+  isError,
+  error,
+}: {
+  plan: ProvisioningPlan | undefined;
+  isFetching: boolean;
+  isError: boolean;
+  error: unknown;
+}) {
+  if (isFetching && !plan) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/40 p-3 text-sm text-muted-foreground flex items-center gap-2">
+        <Eye className="h-4 w-4" />
+        Computing provision plan…
+      </div>
+    );
+  }
+  if (isError || !plan) {
+    return (
+      <div className="rounded-md border border-error/30 bg-error/10 p-3 text-sm text-error flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4" />
+        {getErrorMessage(error, "Unable to compute provision plan")}
+      </div>
+    );
+  }
+
+  const fitsDisk = plan.imageFitsInFlavorDisk;
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-2">
+      <div className="flex items-center gap-2 text-muted-foreground text-xs uppercase tracking-wide">
+        <Eye className="h-3 w-3" />
+        Provisioning plan
+        {isFetching && <Spinner className="h-3 w-3 ml-auto" />}
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+        <span className="text-muted-foreground">Estimated monthly</span>
+        <span className="font-mono font-medium text-right">
+          {formatCurrency(plan.monthlyCostEstimate)}
+        </span>
+        <span className="text-muted-foreground">Estimated hourly</span>
+        <span className="font-mono text-right">
+          {formatCurrency(plan.hourlyCostEstimate)}
+        </span>
+        <span className="text-muted-foreground">OS image</span>
+        <span className="font-mono text-right">
+          {plan.imageOs} {plan.imageVersion} ({plan.imageSizeGb} GB)
+        </span>
+        <span className="text-muted-foreground">Image fits in disk</span>
+        <span className="font-mono text-right inline-flex items-center justify-end gap-1">
+          {fitsDisk ? (
+            <>
+              <CheckCircle2 className="h-3 w-3 text-success" />
+              Yes
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="h-3 w-3 text-warning" />
+              No — backend will resize
+            </>
+          )}
+        </span>
+      </div>
+      {plan.warnings.length > 0 && (
+        <ul className="space-y-1 pt-1 border-t border-border">
+          {plan.warnings.map((w, i) => (
+            <li
+              key={i}
+              className="text-xs text-warning-foreground bg-warning/20 rounded px-2 py-1 flex items-start gap-2"
+            >
+              <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>{w}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

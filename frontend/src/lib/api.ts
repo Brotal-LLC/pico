@@ -206,6 +206,15 @@ export const resources = {
   detail: (id: string) => request<ResourceDetail>(`/api/resources/${id}`),
   provision: (data: { name: string; flavorId: string; imageId: string }) =>
     request<ResourceSummary>("/api/resources", { method: "POST", body: data }),
+  /**
+   * Terraform-style "what will happen if I commit?" preview. Does NOT
+   * create a resource. Returns monthly/hourly cost + disk-fit + warnings.
+   */
+  preview: (data: { flavorId: string; imageId: string }) =>
+    request<ProvisioningPlan>("/api/resources/preview", {
+      method: "POST",
+      body: { name: "preview", ...data },
+    }),
   start: (id: string) =>
     request<ResourceSummary>(`/api/resources/${id}/start`, { method: "POST", body: {} }),
   stop: (id: string) =>
@@ -215,6 +224,20 @@ export const resources = {
   usage: (id: string) => request<ResourceUsage>(`/api/resources/${id}/usage`),
   eventsUrl: (id: string) => `${API_URL}/api/resources/${id}/events`,
 };
+
+export interface ProvisioningPlan {
+  monthlyCostEstimate: number;
+  hourlyCostEstimate: number;
+  vcpus: number;
+  ramMb: number;
+  diskGb: number;
+  imageName: string;
+  imageOs: string;
+  imageVersion: string;
+  imageSizeGb: number;
+  imageFitsInFlavorDisk: boolean;
+  warnings: string[];
+}
 
 // ─── Invoices ────────────────────────────────────────────────────────────
 export interface InvoiceListItem {
@@ -254,6 +277,17 @@ export const invoices = {
 };
 
 // ─── Admin ───────────────────────────────────────────────────────────────
+export interface ResourceSlaSummary {
+  running: number;
+  stopped: number;
+  provisioning: number;
+  failed: number;
+  terminated: number;
+  totalUptimeHours: number;
+  totalPossibleUptimeHours: number;
+  uptimePercent: number;
+}
+
 export interface AdminMetrics {
   totalUsers: number;
   totalResources: number;
@@ -264,6 +298,10 @@ export interface AdminMetrics {
   paidInvoices: number;
   pendingInvoices: number;
   totalRevenue: number;
+  fleetUptimePercent: number;
+  resourcesOlderThan24h: number;
+  oldestActiveResourceAt: string | null;
+  sla: ResourceSlaSummary;
 }
 
 export interface AdminUser {

@@ -239,4 +239,77 @@ public class ResourceServiceTests
         var detail = await svc.GetResourceDetailAsync(p.Value!.Id, Guid.NewGuid(), true, CancellationToken.None);
         Assert.NotNull(detail);
     }
+
+    [Fact]
+    public async Task PreviewAsync_ReturnsPlanWithoutCreatingResource()
+    {
+        var (_, _, _, svc) = Setup();
+        var resBefore = (await svc.ListUserResourcesAsync(UserId, CancellationToken.None)).Count;
+
+        var preview = await svc.PreviewAsync(TestFlavor.Id, TestImage.Id, CancellationToken.None);
+
+        Assert.True(preview.IsSuccess);
+        Assert.NotNull(preview.Value);
+        var plan = preview.Value!;
+        Assert.Equal(TestFlavor.PricePerHour, plan.HourlyCostEstimate);
+        Assert.Equal(TestFlavor.PricePerMonth, plan.MonthlyCostEstimate);
+        Assert.Equal(TestFlavor.Vcpus, plan.Vcpus);
+        Assert.Equal(TestFlavor.RamMb, plan.RamMb);
+        Assert.Equal(TestFlavor.DiskGb, plan.DiskGb);
+        Assert.Equal(TestImage.Name, plan.ImageName);
+        Assert.Equal(TestImage.Os, plan.ImageOs);
+        Assert.Equal(TestImage.Version, plan.ImageVersion);
+        Assert.Equal(TestImage.SizeGb, plan.ImageSizeGb);
+
+        // Preview must be a pure function: no rows added to the resource store.
+        var resAfter = (await svc.ListUserResourcesAsync(UserId, CancellationToken.None)).Count;
+        Assert.Equal(resBefore, resAfter);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_UnknownFlavor_Fails()
+    {
+        var (_, _, _, svc) = Setup();
+        var result = await svc.PreviewAsync(Guid.NewGuid(), TestImage.Id, CancellationToken.None);
+        Assert.False(result.IsSuccess);
+        Assert.Contains("Flavor", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_UnknownImage_Fails()
+    {
+        var (_, _, _, svc) = Setup();
+        var result = await svc.PreviewAsync(TestFlavor.Id, Guid.NewGuid(), CancellationToken.None);
+        Assert.False(result.IsSuccess);
+        Assert.Contains("Image", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_OversizedImage_ProducesIncompatibleWarning()
+    {
+        var (_, fla, img, svc) = Setup();
+        var bigFlavor = Flavor.Create("pico.micro", 1, 512, 5, 0.005m, 3m, "General");
+        var bigImage  = Image.Create("ubuntu-fatty", "Ubuntu", "24.04 LTS", 50);
+        fla.Flavors[bigFlavor.Id] = bigFlavor;
+        img.Images[bigImage.Id] = bigImage;
+
+        var preview = await svc.PreviewAsync(bigFlavor.Id, bigImage.Id, CancellationToken.None);
+        Assert.True(preview.IsSuccess);
+        var plan = preview.Value!;
+        Assert.False(plan.ImageFitsInFlavorDisk);
+        Assert.NotEmpty(plan.Warnings);
+        Assert.Contains(plan.Warnings, w => w.Contains("larger than this flavor"));
+    }
+
+    [Fact]
+    public async Task PreviewAsync_BurstableFlavor_AddsBurstableWarning()
+    {
+        var (_, fla, img, svc) = Setup();
+        // TestFlavor has 1 vCPU and 40 GB disk; TestImage is 2 GB → fits, but bursts.
+        Assert.True(TestFlavor.Vcpus < 2);
+
+        var preview = await svc.PreviewAsync(TestFlavor.Id, TestImage.Id, CancellationToken.None);
+        Assert.True(preview.IsSuccess);
+        Assert.Contains(preview.Value!.Warnings, w => w.Contains("burstable", StringComparison.OrdinalIgnoreCase));
+    }
 }
