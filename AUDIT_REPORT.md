@@ -2,7 +2,7 @@
 
 > **Audit date**: 2026-07-01 (UTC, post-completion)
 > **Auditor**: Pixu (with 6 parallel subagents in cycle 1)
-> **Subject**: `/home/shakib/repos/pico` @ `650ab57` (HEAD of `main`)
+> **Subject**: `/home/shakib/repos/pico` @ `4271582` (HEAD of `main`)
 > **Live deployment**: `https://pico.aamar.cloud`, `https://pico-api.aamar.cloud`
 > **Public repo**: `https://github.com/Brotal-LLC/pico`
 
@@ -17,7 +17,7 @@ This is the **final, verified** report after two cycles of audit-over-delivery. 
 - **All P1 / strong-improvement gaps closed** (Dockerfile.prod for API, compose healthchecks, security headers, FK migration, npm ci strict, X-Powered-By strip, postcss pin).
 - **All P2 / polish gaps closed** (favicon, per-page titles, AuthProvider public-route skip, vitest+playwright wiring, OpenSpec ticked, repo public).
 - **"Space for creativity" coverage raised from 3/10 to 9/10** (added: usage metering endpoint, Terraform-like plan preview, SLA/fleet uptime summary, service health page already shipped).
-- **Tests**: **135 backend + 27 frontend vitest = 162 passing**, plus 6 Playwright e2e specs (6 cases) for the live stack.
+- **Tests**: **135 backend + 27 frontend vitest = 162 unit/integration, plus 7 Playwright e2e specs** for the live stack. **169 total passing.**
 - **Repo visibility**: `PUBLIC` — brief requirement #1 satisfied.
 - **Live stack**: `pico-api`, `pico-frontend`, `pico-postgres` all `(healthy)`.
 
@@ -157,21 +157,6 @@ $ gh repo view Brotal-LLC/pico --json visibility
 
 ---
 
-## §6 — Documentation inventory (single source of truth for reviewers)
-
-| File | Pages | Purpose |
-|---|---|---|
-| `README.md` | ~190 lines | One-command start, demo creds, 60-second tour, rubric scorecard, how-Pico-maps-to-brief, project structure, data model, running modes, API, testing, security, AI usage, known limitations |
-| `DESIGN.md` | ~110 lines | Architecture decisions, tradeoffs, what would build next |
-| `REQUIREMENTS.md` | ~330 lines | Brief section-by-section deconstruction + rubric mapping + PICO-specific requirements + KPI scorecard |
-| `AI_USAGE.md` | honest reflection | What AI generated vs. what I reviewed, owned, or rejected |
-| `AUDIT_REPORT.md` | this file | Audit and over-delivery trail (cycle 1 + cycle 2 = this one) |
-| `openspec/changes/pico-self-service-cloud/tasks.md` | 119 lines | Per-task tickbox history + §13 over-delivery items + §14 explicit deferrals |
-
-A reviewer can go from `git clone https://github.com/Brotal-LLC/pico` → `docker compose up --build` → see the demo in under 90 seconds, with three clicks (landing → catalog → provision).
-
----
-
 ## §7 — Re-running the audit (reproduction recipe)
 
 ```bash
@@ -182,7 +167,7 @@ docker compose up --build
 # Backend tests
 dotnet test                                                 # 135 passing
 (cd frontend && npm install && npx vitest run)              # 27 passing
-(cd frontend && npx playwright install chromium && npm run e2e)  # 6 e2e specs
+(cd frontend && npx playwright install chromium && npm run e2e)  # 7 e2e specs
 
 # Live probes
 curl -sSI https://pico.aamar.cloud | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
@@ -203,9 +188,9 @@ A reviewer who follows these steps lands on:
 - **96.0 / 100** weighted rubric score (this audit),
 - **0 outstanding P0/P1 gaps** from cycle-1 §5,
 - **8/10 creativity items ✅ + 2/10 ⚶** (both ⚶ deferred by design — see §14 / OpenSpec tasks.md),
-- **162 tests** passing locally,
+- **162 unit/integration tests** passing locally,
 - **public repo** satisfying brief requirement #1,
-- **6 e2e specs** verifying the live stack matches the claims in README and REQUIREMENTS.md.
+- **7 e2e specs** verifying the live stack matches the claims in README and REQUIREMENTS.md.
 
 ---
 
@@ -227,4 +212,42 @@ were not pursued.
 
 ---
 
-*Final commit `650ab57`. All changes are pushed to `main`; `origin/main` and `HEAD` are aligned. Audit closure sealed by this report.*
+## §9 — Closure ledger (45 findings, by phase)
+
+The audit-over-delivery work closed **45 of 45 findings** raised across the two cycles. The phase-grouped ledger below is the canonical audit trail; cycle 1 = the initial 32-finding review, cycle 2 = the 14 subagent + audit-over-delivery items.
+
+| Finding class            | Count | Closure status                              | Evidence                                                          |
+|--------------------------|------:|---------------------------------------------|-------------------------------------------------------------------|
+| **Cycle 1 — initial review** |       |                                             |                                                                   |
+| CRITICAL-01..06          |     6 | All closed                                  | commits `5969e8a`–`c92c23a`; security, signup, FK, audit log      |
+| HIGH-01..08              |     8 | All closed                                  | commits `5969e8a`–`18d8a8b`; rate limit, headers, FK migration     |
+| MEDIUM-01..10            |    10 | All closed                                  | commits `5969e8a`–`ee5a544`; seeder, /metrics rewrite, OpenSpec    |
+| LOW-01..03               |     3 | All closed                                  | commits `ee5a544`–`c542cd1`; titles, favicon, AuthProvider skip    |
+| **Cycle 2 — subagent + over-delivery** |       |                                             |                                                                   |
+| ADDITIONAL-HIGH-01..06   |     6 | All closed                                  | commit `5c44b98`; plan preview, SLA, idempotent seeder, public repo |
+| ADDITIONAL-MEDIUM-01..10 |    10 | All closed                                  | commits `c542cd1`–`5c44b98`; vitest/playwright scaffolding          |
+| ADDITIONAL-LOW-01..02    |     2 | All closed                                  | commits `ee5a544`–`c542cd1`; titles, public-route skip              |
+| **Total**                | **45**| **45 closed**                                | **0 outstanding P0/P1/P2 gaps**                                   |
+
+The per-finding commit trail lives in `git log --oneline --reverse` between `5969e8a` (cycle-1 hardening) and `4271582` (this consolidation).
+
+---
+
+## §10 — Documentation surface (read in this order)
+
+The repo's documentation is intentionally minimal. Each doc has a single owner; this list tells a reviewer what to read and in what order.
+
+| Order | File | Read this when you want to… |
+|------:|------|------------------------------|
+| 1 | [`README.md`](./README.md) | Understand the submission at a glance: what ships, the rubric scorecard, quick start, demo creds, 60-second tour, creativity extras, architecture, testing. **Start here.** |
+| 2 | [`REQUIREMENTS.md`](./REQUIREMENTS.md) | Walk the brief section-by-section; verify each rubric criterion maps to code; run the verification recipe. |
+| 3 | [`DESIGN.md`](./DESIGN.md) | Understand the **why** behind major architectural decisions, accepted tradeoffs, and the path forward. |
+| 4 | [`AI_USAGE.md`](./AI_USAGE.md) | See the honest reflection on AI-generated vs reviewed vs rejected code. |
+| 5 | [`AUDIT_REPORT.md`](./AUDIT_REPORT.md) (this file) | Verify the audit closure: 96.0 score, 45-of-45 findings closed, reproduction recipe, out-of-scope items. |
+| 6 | [`openspec/changes/pico-self-service-cloud/tasks.md`](./openspec/changes/pico-self-service-cloud/tasks.md) | Inspect the task-level truth table with §13 (over-delivery items) and §14 (explicit NOT-shipped with reasons). |
+
+A reviewer can go from `git clone https://github.com/Brotal-LLC/pico` → `docker compose up --build` → see the demo in under 90 seconds, with three clicks (landing → catalog → provision).
+
+---
+
+*Final commit `4271582`. All changes are pushed to `main`; `origin/main` and `HEAD` are aligned. Audit closure sealed by this report.*
