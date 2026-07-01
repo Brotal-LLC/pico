@@ -69,6 +69,8 @@ services:
       - .:/workspace
       - ${HOME}/.nuget/packages:/home/pixu/.nuget/packages
       - ${DOCKER_SOCKET_MOUNT:-/dev/null:/dev/null:ro}
+    group_add:
+      - "973"
     depends_on:
       postgres:
         condition: service_healthy

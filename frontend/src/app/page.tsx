@@ -1,17 +1,15 @@
-import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ArrowRight, Cloud, Activity, Receipt } from "lucide-react";
-import { auth } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  // Server-side check: if user has a valid session, send to dashboard
-  try {
-    await auth.me();
-    redirect("/dashboard");
-  } catch {
-    // Not logged in, show landing
-  }
+  // Auth-aware: when the user has a session, surface the landing but with
+  // a single primary CTA pointing at the dashboard.
+  const sessionToken = (await cookies()).get("Pico.Auth")?.value;
+  const isAuthenticated = Boolean(sessionToken);
 
   return (
     <main className="min-h-screen bg-background">
@@ -19,12 +17,23 @@ export default async function HomePage() {
         <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight">Pico</h1>
           <div className="flex gap-2">
-            <Button variant="ghost" asChild>
-              <Link href="/login">Sign in</Link>
-            </Button>
-            <Button variant="primary" asChild>
-              <Link href="/signup">Get started</Link>
-            </Button>
+            {isAuthenticated ? (
+              <Button variant="primary" asChild>
+                <Link href="/dashboard">
+                  Go to dashboard
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" asChild>
+                  <Link href="/login">Sign in</Link>
+                </Button>
+                <Button variant="primary" asChild>
+                  <Link href="/signup">Get started</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -36,15 +45,26 @@ export default async function HomePage() {
           Pay only for what you use.
         </p>
         <div className="mt-8 flex gap-3">
-          <Button size="lg" asChild>
-            <Link href="/signup">
-              Create account
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-          <Button variant="outline" size="lg" asChild>
-            <Link href="/catalog">Browse packages</Link>
-          </Button>
+          {isAuthenticated ? (
+            <Button size="lg" asChild>
+              <Link href="/dashboard">
+                Open dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          ) : (
+            <>
+              <Button size="lg" asChild>
+                <Link href="/signup">
+                  Create account
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="lg" asChild>
+                <Link href="/catalog">Browse packages</Link>
+              </Button>
+            </>
+          )}
         </div>
       </section>
 

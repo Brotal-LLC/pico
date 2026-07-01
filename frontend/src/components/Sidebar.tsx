@@ -134,11 +134,15 @@ function SidebarContent({
 
       <div className="px-3 py-4 border-t border-border">
         <div className="px-3 mb-3">
-          <p className="text-sm font-medium truncate">{user?.name}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium truncate">{user?.name}</p>
+            {user?.role === "Admin" && (
+              <span className="inline-flex items-center rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Admin
+              </span>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            <span className="font-mono text-xs">{user?.role}</span>
-          </p>
         </div>
         <Button
           variant="outline"

@@ -114,6 +114,19 @@ builder.Services.AddAntiforgery(options =>
 // ─── Problem Details (RFC 7807) ──────────────────────────────────────────
 builder.Services.AddProblemDetails();
 
+// ─── JSON serialization: enums as strings ────────────────────────────────
+// DTOs that expose `UserRole` (and any future enum) must serialize with
+// their .NET names so the SPA's string-based comparisons keep working.
+// Without this the wire format is `"role": 1` and role gating silently fails.
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+});
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+});
+
 // ─── OpenAPI ──────────────────────────────────────────────────────────────
 builder.Services.AddOpenApi();
 
