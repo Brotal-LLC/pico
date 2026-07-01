@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useAuth } from "@/components/AuthProvider";
+import { usePageTitle } from "@/lib/use-page-title";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -20,6 +21,7 @@ const schema = z.object({
 type SignupForm = z.infer<typeof schema>;
 
 export default function SignupPage() {
+  usePageTitle("Sign up");
   const { signup } = useAuth();
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);

@@ -1,9 +1,15 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { catalog } from "@/lib/api";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+
+export const metadata: Metadata = {
+  title: "Catalog",
+  description: "Browse Pico's VM flavors and OS images, then provision in seconds.",
+};
 import { Cpu, HardDrive, MemoryStick, ArrowRight, ArrowLeft } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 

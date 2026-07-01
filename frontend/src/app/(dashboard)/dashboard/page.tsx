@@ -10,8 +10,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Plus, Server } from "lucide-react";
 import { formatRelativeTime, getErrorMessage } from "@/lib/utils";
+import { usePageTitle } from "@/lib/use-page-title";
 
 export default function DashboardPage() {
+  usePageTitle("Dashboard");
   const { data: resourcesList, isLoading, isError, error } = useQuery({
     queryKey: ["resources"],
     queryFn: () => resources.list(),

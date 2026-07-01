@@ -11,8 +11,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Receipt, ExternalLink } from "lucide-react";
 import { formatCurrency, formatRelativeTime, getErrorMessage } from "@/lib/utils";
+import { usePageTitle } from "@/lib/use-page-title";
 
 export default function BillingPage() {
+  usePageTitle("Billing");
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => invoices.list(),

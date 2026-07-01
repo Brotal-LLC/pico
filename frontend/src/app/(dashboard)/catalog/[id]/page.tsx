@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { catalog, resources } from "@/lib/api";
+import { usePageTitle } from "@/lib/use-page-title";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
@@ -14,6 +15,7 @@ import { formatCurrency, getErrorMessage } from "@/lib/utils";
 
 export default function ProvisionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: flavorId } = use(params);
+  usePageTitle("Provision");
   const router = useRouter();
   const qc = useQueryClient();
   const [name, setName] = useState("");

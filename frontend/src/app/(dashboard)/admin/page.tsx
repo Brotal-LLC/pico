@@ -6,8 +6,10 @@ import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/compon
 import { Badge } from "@/components/ui/Badge";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatCurrency, formatRelativeTime, getErrorMessage } from "@/lib/utils";
+import { usePageTitle } from "@/lib/use-page-title";
 
 export default function AdminPage() {
+  usePageTitle("Admin");
   const {
     data: metrics,
     isLoading: metricsLoading,

@@ -3,7 +3,10 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pico — Self-Service Cloud",
+  title: {
+    default: "Pico — Self-Service Cloud",
+    template: "%s · Pico",
+  },
   description: "Provision, manage, and monitor your cloud resources",
 };
 

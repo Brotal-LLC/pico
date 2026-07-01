@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useAuth } from "@/components/AuthProvider";
+import { usePageTitle } from "@/lib/use-page-title";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Input";
@@ -20,6 +21,7 @@ const schema = z.object({
 type LoginForm = z.infer<typeof schema>;
 
 export default function LoginPage() {
+  usePageTitle("Sign in");
   const { login } = useAuth();
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);

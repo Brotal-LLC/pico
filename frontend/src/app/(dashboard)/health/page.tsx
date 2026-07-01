@@ -5,8 +5,10 @@ import { health } from "@/lib/api";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatRelativeTime, getErrorMessage } from "@/lib/utils";
+import { usePageTitle } from "@/lib/use-page-title";
 
 export default function HealthPage() {
+  usePageTitle("Health");
   const { data, isLoading, isError, error, dataUpdatedAt } = useQuery({
     queryKey: ["health"],
     queryFn: () => health.get(),

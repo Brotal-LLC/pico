@@ -1,9 +1,14 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { Button } from "@/components/ui/Button";
 import { ArrowRight, Cloud, Activity, Receipt } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Pico — Self-Service Cloud",
+};
 
 export default async function HomePage() {
   // Auth-aware: when the user has a session, surface the landing but with

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { resources, ResourceDetail, ResourceEvent } from "@/lib/api";
+import { usePageTitle } from "@/lib/use-page-title";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/Badge";
@@ -24,6 +25,7 @@ function dedupeEvents(items: ResourceEvent[]) {
 
 export default function ResourceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  usePageTitle("Resource");
   const router = useRouter();
   const qc = useQueryClient();
 

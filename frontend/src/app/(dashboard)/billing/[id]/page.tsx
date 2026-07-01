@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { invoices } from "@/lib/api";
+import { usePageTitle } from "@/lib/use-page-title";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { InvoiceStatusBadge } from "@/components/ui/Badge";
@@ -14,6 +15,7 @@ import { formatCurrency, getErrorMessage } from "@/lib/utils";
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  usePageTitle("Invoice");
   const qc = useQueryClient();
 
   const { data: inv, isLoading, isError, error } = useQuery({
