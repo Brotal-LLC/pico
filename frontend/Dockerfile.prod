@@ -13,22 +13,17 @@ RUN npm run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
-# Non-root user — handle existing UID/GID 1000 gracefully
-RUN set -eux; \
-    if ! getent group 1000 >/dev/null; then addgroup -g 1000 pixu; fi; \
-    if ! id -u 1000 >/dev/null 2>&1; then \
-      adduser -u 1000 -G pixu -s /bin/sh -D pixu 2>/dev/null || true; \
-    fi; \
-    chown -R 1000:1000 /app
+# node:22-alpine already has UID 1000 (user: node)
+RUN chown -R node:node /app
 
 # Copy standalone output (smaller, self-contained)
-COPY --from=build --chown=1000:1000 /app/.next/standalone ./
-COPY --from=build --chown=1000:1000 /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
 # public/ may not exist — create it to avoid copy failure
 RUN mkdir -p ./public
-COPY --from=build --chown=1000:1000 /app/public* ./public/
+COPY --from=build --chown=node:node /app/public* ./public/
 
-USER 1000
+USER node
 EXPOSE 3000
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \

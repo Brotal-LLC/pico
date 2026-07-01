@@ -18,7 +18,7 @@ docker compose up --build
 
 After the build, open:
 - **http://localhost:3000** — customer-facing web app (marketing landing + auth + dashboard)
-- **http://localhost:8080/swagger** — API documentation
+- **http://localhost:8080/openapi/v1.json** — OpenAPI schema
 - **http://localhost:8080/api/health** — service health
 
 The app boots with the `mock` provisioning backend (zero external dependencies), auto-migrates the database, and seeds 6 VM flavors, 4 OS images, and 2 demo users.
@@ -115,7 +115,7 @@ The backend's provisioning mode is selected via the `PROVISIONING_MODE` env var:
 
 ## API
 
-All endpoints are documented via OpenAPI at `/swagger` when the app is running.
+All endpoints are documented via OpenAPI at `/openapi/v1.json` when the app is running.
 
 **Authentication** — cookie-based session (HttpOnly, SameSite=Lax, Secure in production, 7-day sliding). CSRF protection via antiforgery tokens for state-changing requests.
 

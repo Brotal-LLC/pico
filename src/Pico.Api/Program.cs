@@ -33,7 +33,6 @@ builder.Services.AddCors(options =>
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("ConnectionStrings__Default not configured");
 builder.Services.AddDbContext<PicoDbContext>(opts => opts.UseNpgsql(connectionString));
-builder.Services.AddDbContextFactory<PicoDbContext>(opts => opts.UseNpgsql(connectionString));
 
 // ─── Password hashing ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -101,9 +100,8 @@ builder.Services.AddAntiforgery(options =>
 // ─── Problem Details (RFC 7807) ──────────────────────────────────────────
 builder.Services.AddProblemDetails();
 
-// ─── OpenAPI + structured logging ─────────────────────────────────────────
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// ─── OpenAPI ──────────────────────────────────────────────────────────────
+builder.Services.AddOpenApi();
 
 // ─── Build & configure pipeline ──────────────────────────────────────────
 var app = builder.Build();
@@ -126,8 +124,7 @@ app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
 }
 
 // ─── CSRF token endpoint ─────────────────────────────────────────────────
