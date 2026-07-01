@@ -83,11 +83,16 @@ public class FakeProvisioningBackend : IProvisioningBackend
     public string Mode => "fake";
     public bool ProvisionShouldFail { get; set; }
     public bool StartShouldFail { get; set; }
+    public int ProvisionCalls { get; private set; }
+    public int StartCalls { get; private set; }
+    public int StopCalls { get; private set; }
+    public int TerminateCalls { get; private set; }
 
     public string ProvisionedExternalIdFormat(Guid id) => $"fake-{id:N}";
 
     public Task<ProvisionResult> ProvisionAsync(ProvisionRequest request, CancellationToken ct)
     {
+        ProvisionCalls++;
         if (ProvisionShouldFail)
             return Task.FromResult(ProvisionResult.Fail("Backend declined"));
         return Task.FromResult(ProvisionResult.Ok(
@@ -96,16 +101,23 @@ public class FakeProvisioningBackend : IProvisioningBackend
 
     public Task<ProvisionResult> StartAsync(string externalId, CancellationToken ct)
     {
+        StartCalls++;
         if (StartShouldFail)
             return Task.FromResult(ProvisionResult.Fail("Start failed"));
         return Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
     }
 
-    public Task<ProvisionResult> StopAsync(string externalId, CancellationToken ct) =>
-        Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
+    public Task<ProvisionResult> StopAsync(string externalId, CancellationToken ct)
+    {
+        StopCalls++;
+        return Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
+    }
 
-    public Task<ProvisionResult> TerminateAsync(string externalId, CancellationToken ct) =>
-        Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
+    public Task<ProvisionResult> TerminateAsync(string externalId, CancellationToken ct)
+    {
+        TerminateCalls++;
+        return Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
+    }
 
     public Task<ResourceUsage> GetUsageAsync(string externalId, CancellationToken ct) =>
         Task.FromResult(new ResourceUsage(42.5, 512, 100, 1024, 2048, DateTimeOffset.UtcNow));

@@ -3,6 +3,7 @@ using Pico.Application.Provisioning;
 using Pico.Domain;
 using Pico.Domain.Entities;
 using Pico.Domain.Enums;
+using Pico.Domain.StateMachines;
 
 namespace Pico.Application.Resources;
 
@@ -137,10 +138,13 @@ public class ResourceService
         if (resource.UserId != userId)
             return Result<ResourceSummaryDto>.Failure("Forbidden");
 
+        var transitionFailure = ValidateTransition(resource, ResourceStatus.Running);
+        if (transitionFailure is not null)
+            return transitionFailure;
+
         if (resource.ExternalId is null)
             return Result<ResourceSummaryDto>.Failure("Resource has no external id");
 
-        // Call backend first, then update state
         var backendResult = await _backend.StartAsync(resource.ExternalId, ct);
         if (!backendResult.Success)
             return Result<ResourceSummaryDto>.Failure($"Backend start failed: {backendResult.Error}");
@@ -161,6 +165,10 @@ public class ResourceService
             return Result<ResourceSummaryDto>.Failure("Resource not found");
         if (resource.UserId != userId)
             return Result<ResourceSummaryDto>.Failure("Forbidden");
+
+        var transitionFailure = ValidateTransition(resource, ResourceStatus.Stopped);
+        if (transitionFailure is not null)
+            return transitionFailure;
 
         if (resource.ExternalId is null)
             return Result<ResourceSummaryDto>.Failure("Resource has no external id");
@@ -186,7 +194,10 @@ public class ResourceService
         if (resource.UserId != userId)
             return Result<ResourceSummaryDto>.Failure("Forbidden");
 
-        // Call backend first (if external id exists)
+        var transitionFailure = ValidateTransition(resource, ResourceStatus.Terminated);
+        if (transitionFailure is not null)
+            return transitionFailure;
+
         if (resource.ExternalId is not null)
         {
             var backendResult = await _backend.TerminateAsync(resource.ExternalId, ct);
@@ -236,4 +247,11 @@ public class ResourceService
     private static ResourceSummaryDto ToSummary(Resource r) =>
         new(r.Id, r.Name, r.Status.ToString(), r.FlavorId, r.ImageId,
             r.IpAddress, r.ExternalId, r.CreatedAt, r.UpdatedAt);
+
+    private static Result<ResourceSummaryDto>? ValidateTransition(Resource resource, ResourceStatus targetStatus)
+    {
+        return ResourceStateMachine.CanTransition(resource.Status, targetStatus)
+            ? null
+            : Result<ResourceSummaryDto>.Failure($"Invalid transition: {resource.Status} -> {targetStatus}");
+    }
 }

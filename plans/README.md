@@ -24,7 +24,7 @@ Pre-existing working tree note: before this audit wrote plans, `git status --sho
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |---|---|---:|---:|---|---|
-| 001 | Harden resource lifecycle actions before backend side effects | P1 | M | — | TODO |
+| 001 | Harden resource lifecycle actions before backend side effects | P1 | M | — | DONE |
 | 002 | Restore the current-user session contract | P1 | S | — | TODO |
 | 003 | Enable real CSRF validation for cookie-authenticated mutations | P1 | M | — | TODO |
 | 004 | Clear high-severity dependency advisories | P1 | M | — | TODO |

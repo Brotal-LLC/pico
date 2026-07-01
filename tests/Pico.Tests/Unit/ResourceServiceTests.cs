@@ -17,6 +17,12 @@ public class ResourceServiceTests
 
     private static (FakeResourceRepository res, FakeFlavorRepository fla, FakeImageRepository img, ResourceService svc) Setup()
     {
+        var (res, fla, img, _, svc) = SetupWithBackend();
+        return (res, fla, img, svc);
+    }
+
+    private static (FakeResourceRepository res, FakeFlavorRepository fla, FakeImageRepository img, FakeProvisioningBackend backend, ResourceService svc) SetupWithBackend()
+    {
         var res = new FakeResourceRepository();
         var fla = new FakeFlavorRepository();
         var img = new FakeImageRepository();
@@ -24,7 +30,7 @@ public class ResourceServiceTests
         img.Images[TestImage.Id] = TestImage;
         var backend = new FakeProvisioningBackend();
         var svc = new ResourceService(res, fla, img, backend);
-        return (res, fla, img, svc);
+        return (res, fla, img, backend, svc);
     }
 
     [Fact]
@@ -125,6 +131,70 @@ public class ResourceServiceTests
         var result = await svc.StartAsync(resourceId, differentUser, CancellationToken.None);
         Assert.False(result.IsSuccess);
         Assert.Equal("Forbidden", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task StartAsync_RunningResource_ReturnsFailureWithoutBackendCall()
+    {
+        var (repo, _, _, backend, svc) = SetupWithBackend();
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var resourceId = p.Value!.Id;
+
+        Result<ResourceSummaryDto>? result = null;
+        var ex = await Record.ExceptionAsync(async () =>
+            result = await svc.StartAsync(resourceId, UserId, CancellationToken.None));
+
+        Assert.Null(ex);
+        Assert.NotNull(result);
+        Assert.False(result!.IsSuccess);
+        Assert.Contains("Invalid transition: Running -> Running", result.ErrorMessage);
+        Assert.Equal(Domain.Enums.ResourceStatus.Running, repo.Resources[resourceId].Status);
+        Assert.Equal(0, backend.StartCalls);
+    }
+
+    [Fact]
+    public async Task StopAsync_StoppedResource_ReturnsFailureWithoutBackendCall()
+    {
+        var (repo, _, _, backend, svc) = SetupWithBackend();
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var resourceId = p.Value!.Id;
+        repo.Resources[resourceId].TransitionTo(Domain.Enums.ResourceStatus.Stopped, "manual");
+
+        Result<ResourceSummaryDto>? result = null;
+        var ex = await Record.ExceptionAsync(async () =>
+            result = await svc.StopAsync(resourceId, UserId, CancellationToken.None));
+
+        Assert.Null(ex);
+        Assert.NotNull(result);
+        Assert.False(result!.IsSuccess);
+        Assert.Contains("Invalid transition: Stopped -> Stopped", result.ErrorMessage);
+        Assert.Equal(Domain.Enums.ResourceStatus.Stopped, repo.Resources[resourceId].Status);
+        Assert.Equal(0, backend.StopCalls);
+    }
+
+    [Fact]
+    public async Task TerminateAsync_ProvisioningResource_ReturnsFailureWithoutBackendCall()
+    {
+        var (repo, _, _, backend, svc) = SetupWithBackend();
+        var resource = Resource.Provision(UserId, TestFlavor.Id, TestImage.Id, "vm");
+        resource.SetExternalId("fake-provisioning");
+        resource.TransitionTo(Domain.Enums.ResourceStatus.Provisioning, "manual");
+        await repo.AddAsync(resource, CancellationToken.None);
+
+        Result<ResourceSummaryDto>? result = null;
+        var ex = await Record.ExceptionAsync(async () =>
+            result = await svc.TerminateAsync(resource.Id, UserId, CancellationToken.None));
+
+        Assert.Null(ex);
+        Assert.NotNull(result);
+        Assert.False(result!.IsSuccess);
+        Assert.Contains("Invalid transition: Provisioning -> Terminated", result.ErrorMessage);
+        Assert.Equal(Domain.Enums.ResourceStatus.Provisioning, repo.Resources[resource.Id].Status);
+        Assert.Equal(0, backend.TerminateCalls);
     }
 
     [Fact]
