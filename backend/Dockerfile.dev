@@ -1,18 +1,16 @@
 # Development image — .NET 10 SDK with hot reload
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 
-# Non-root user — handle existing UID/GID 1000 gracefully
+# Create non-root user (UID 1000) — handle existing GID gracefully
 RUN set -eux; \
     if ! getent group 1000 >/dev/null; then groupadd --gid 1000 pixu; fi; \
     if ! id -u 1000 >/dev/null 2>&1; then \
       useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home pixu; \
-    else \
-      usermod -l pixu -d /home/pixu -m $(id -un 1000) 2>/dev/null || true; \
     fi; \
     mkdir -p /workspace /home/pixu/.nuget/packages && \
     chown -R 1000:1000 /workspace /home/pixu/.nuget
 
-USER pixu
+USER 1000
 WORKDIR /workspace
 ENV DOTNET_USE_POLLING_FILE_WATCHER=1 \
     DOTNET_WATCH_SUPPRESS_EMOJIS=1 \

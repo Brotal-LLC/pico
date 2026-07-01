@@ -60,7 +60,7 @@ services:
       OpenStack__Password: ${OpenStack__Password:-}
       OpenStack__ProjectName: ${OpenStack__ProjectName:-admin}
       OpenStack__Region: ${OpenStack__Region:-RegionOne}
-      Cors__AllowedOrigins: ${Cors__AllowedOrigins:-http://localhost:3000}
+      Cors__AllowedOrigins: ${Cors__AllowedOrigins:-https://pico.aamar.cloud}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       DOTNET_WATCH_SUPPRESS_EMOJIS: "1"
@@ -73,6 +73,10 @@ services:
         condition: service_healthy
     networks:
       - pico_net
+      - ingress
+    labels:
+      caddy: pico-api.aamar.cloud
+      caddy.reverse_proxy: "{{upstreams 8080}}"
 
   frontend:
     build:
@@ -85,16 +89,19 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://pico-api.aamar.cloud}
       API_URL: http://api:8080
       NODE_ENV: development
     volumes:
       - ./frontend:/workspace
-      - frontend-node-modules:/workspace/node_modules
     depends_on:
       - api
     networks:
       - pico_net
+      - ingress
+    labels:
+      caddy: pico.aamar.cloud
+      caddy.reverse_proxy: "{{upstreams 3000}}"
 
 volumes:
   pico-postgres-data:
@@ -105,3 +112,5 @@ volumes:
 networks:
   pico_net:
     name: pico_net
+  ingress:
+    external: true
