@@ -24,13 +24,13 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * initial mount. Subsequent navigations keep the existing user state so
  * transitions like `/dashboard` → `/catalog` don't flicker.
  */
-const PUBLIC_ROUTES = new Set<string>(["/", "/login", "/signup", "/catalog"]);
+const PUBLIC_ROUTES = new Set<string>(["/", "/login", "/signup", "/browse"]);
 
 function isPublicRoute(pathname: string | null): boolean {
   if (!pathname) return false;
   if (PUBLIC_ROUTES.has(pathname)) return true;
-  // The (dashboard) variants are protected and live under a different segment
-  // — only the public `/catalog` (root segment) is open.
+  // `/catalog` and everything under `(dashboard)/` are protected; only the
+  // legacy public `/browse` surface is open.
   return false;
 }
 

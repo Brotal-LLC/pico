@@ -66,7 +66,7 @@ export default async function HomePage() {
                 </Link>
               </Button>
               <Button variant="outline" size="lg" asChild>
-                <Link href="/catalog">Browse packages</Link>
+                <Link href="/browse">Browse packages</Link>
               </Button>
             </>
           )}

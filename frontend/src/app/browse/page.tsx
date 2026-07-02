@@ -1,21 +1,20 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { catalog } from "@/lib/api";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
 export const metadata: Metadata = {
-  title: "Catalog",
+  title: "Browse packages",
   description: "Browse Pico's VM flavors and OS images, then provision in seconds.",
 };
-import { Cpu, HardDrive, MemoryStick, ArrowRight, ArrowLeft } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function PublicCatalogPage() {
+export default async function PublicBrowsePage() {
   let flavors: Awaited<ReturnType<typeof catalog.flavors>> | null = null;
   let error: string | null = null;
 
@@ -25,13 +24,6 @@ export default async function PublicCatalogPage() {
     error = e instanceof Error ? e.message : "Unable to load packages. Please try again later.";
   }
 
-  // Detect an active session by looking for the auth cookie. This avoids a
-  // server-to-server `auth.me()` round-trip on every render and keeps the
-  // page snapshot-friendly for anonymous visitors.
-  const cookieStore = await cookies();
-  const sessionToken = cookieStore.get("Pico.Auth")?.value;
-  const isAuthenticated = Boolean(sessionToken);
-
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border">
@@ -40,38 +32,17 @@ export default async function PublicCatalogPage() {
             Pico
           </Link>
           <div className="flex gap-2">
-            {isAuthenticated ? (
-              <>
-                <Button variant="ghost" asChild>
-                  <Link href="/dashboard">Dashboard</Link>
-                </Button>
-                <Button variant="primary" asChild>
-                  <Link href="/dashboard">Provision</Link>
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="ghost" asChild>
-                  <Link href="/login">Sign in</Link>
-                </Button>
-                <Button variant="primary" asChild>
-                  <Link href="/signup">Get started</Link>
-                </Button>
-              </>
-            )}
+            <Button variant="ghost" asChild>
+              <Link href="/login">Sign in</Link>
+            </Button>
+            <Button variant="primary" asChild>
+              <Link href="/signup">Get started</Link>
+            </Button>
           </div>
         </div>
       </header>
 
       <section className="mx-auto max-w-6xl px-6 py-12">
-        <Link
-          href={isAuthenticated ? "/dashboard" : "/"}
-          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-6"
-        >
-          <ArrowLeft className="h-3 w-3" />
-          {isAuthenticated ? "Back to dashboard" : "Back to home"}
-        </Link>
-
         <h1 className="text-3xl font-bold tracking-tight">Packages</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Choose a VM package to provision. Pay only for what you use.
@@ -86,7 +57,7 @@ export default async function PublicCatalogPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
             {flavors?.map((flavor) => (
-              <FlavorCard key={flavor.id} flavor={flavor} isAuthenticated={isAuthenticated} />
+              <BrowseFlavorCard key={flavor.id} flavor={flavor} />
             ))}
           </div>
         )}
@@ -95,15 +66,16 @@ export default async function PublicCatalogPage() {
   );
 }
 
-function FlavorCard({
+function BrowseFlavorCard({
   flavor,
-  isAuthenticated,
 }: {
   flavor: NonNullable<Awaited<ReturnType<typeof catalog.flavors>>>[number];
-  isAuthenticated: boolean;
 }) {
-  const ctaHref = isAuthenticated ? `/catalog/${flavor.id}` : "/signup";
-  const ctaLabel = isAuthenticated ? "Provision" : "Get started";
+  // /browse is the public/marketing surface. Anonymous visitors land on the
+  // signup wall from the CTA; authenticated visitors are usually here from a
+  // shared link and want to see the catalog without being redirected, so the
+  // CTA takes them to the dashboard-side flavor detail.
+  const ctaHref = "/signup";
 
   return (
     <Card>
@@ -136,7 +108,7 @@ function FlavorCard({
         </div>
         <Button className="w-full" asChild>
           <Link href={ctaHref}>
-            {ctaLabel}
+            Get started
             <ArrowRight className="h-4 w-4" />
           </Link>
         </Button>
