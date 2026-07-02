@@ -19,11 +19,10 @@ namespace Pico.Tests.Unit;
 /// Regression tests for the default CORS / cookie-domain configuration that
 /// a fresh reviewer gets from <c>docker compose up --build</c> (no .env file).
 ///
-/// The pre-fix defaults in compose.yaml pointed at the production
-/// <c>https://pico.aamar.cloud</c> origin, which meant a reviewer running
-/// the stack on their laptop could not authenticate: the browser blocked
-/// the cross-origin XHR from <c>http://localhost:3000</c> with a CORS
-/// preflight failure.
+/// The pre-fix defaults in compose.yaml pointed at a hardcoded production
+/// origin, which meant a reviewer running the stack on their laptop could
+/// not authenticate: the browser blocked the cross-origin XHR from
+/// <c>http://localhost:3000</c> with a CORS preflight failure.
 ///
 /// After the fix, the compose defaults are local-dev-friendly
 /// (<c>http://localhost:3000</c> for CORS, no cookie domain). Production
@@ -65,16 +64,17 @@ public class DefaultCorsPolicyTests : IClassFixture<DefaultCorsPolicyTests.Defau
     }
 
     [Fact]
-    public async Task CorsPreflight_FromProductionOrigin_IsNotAllowedByDevDefaults()
+    public async Task CorsPreflight_FromForeignOrigin_IsNotAllowedByDevDefaults()
     {
-        // Belt-and-braces: the dev defaults are not a wildcard. A real
-        // production origin must NOT be silently allowed when the dev
-        // defaults are in effect (that would mean we're using `AllowAnyOrigin`
-        // somewhere, which is incompatible with `AllowCredentials`).
+        // Belt-and-braces: the dev defaults are not a wildcard. A
+        // arbitrary foreign origin must NOT be silently allowed when the
+        // dev defaults are in effect (that would mean we're using
+        // `AllowAnyOrigin` somewhere, which is incompatible with
+        // `AllowCredentials`).
         using var client = _factory.CreateClient();
 
         var request = new HttpRequestMessage(HttpMethod.Options, "/api/auth/login");
-        request.Headers.Add("Origin", "https://pico.aamar.cloud");
+        request.Headers.Add("Origin", "https://foreign-origin.example.com");
         request.Headers.Add("Access-Control-Request-Method", "POST");
         request.Headers.Add("Access-Control-Request-Headers", "content-type,x-csrf-token");
 
@@ -86,8 +86,8 @@ public class DefaultCorsPolicyTests : IClassFixture<DefaultCorsPolicyTests.Defau
         // ignores the response if ACAO is missing.
         Assert.False(
             response.Headers.TryGetValues("Access-Control-Allow-Origin", out var allowOrigin)
-                && allowOrigin!.Contains("https://pico.aamar.cloud"),
-            "Dev defaults must NOT silently allow the production origin");
+                && allowOrigin!.Contains("https://foreign-origin.example.com"),
+            "Dev defaults must NOT silently allow an arbitrary foreign origin");
     }
 
     [Fact]

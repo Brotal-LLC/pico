@@ -81,7 +81,11 @@ public class CookieDomainDefaultsTests
         var prevValue = Environment.GetEnvironmentVariable("Cookie__Domain");
         try
         {
-            Environment.SetEnvironmentVariable("Cookie__Domain", ".aamar.cloud");
+            // Belt-and-braces: when an explicit Cookie:Domain is configured,
+            // ASP.NET must emit it verbatim in the Set-Cookie header. Use a
+            // generic test domain (RFC 6761 reserved) so this test does not
+            // couple to any real deployment hostname.
+            Environment.SetEnvironmentVariable("Cookie__Domain", ".example.com");
 
             using var factory = new CookieDomainWebApplicationFactory();
             // Build a raw HttpClient around the test server's handler, with no
@@ -101,9 +105,9 @@ public class CookieDomainDefaultsTests
             var setCookie = response.Headers.TryGetValues("Set-Cookie", out var values)
                 ? string.Join(",", values)
                 : string.Empty;
-            // Production cookie domain is set; the empty-Domain behaviour is
-            // strictly a fallback for local dev.
-            Assert.Contains("domain=.aamar.cloud", setCookie, StringComparison.OrdinalIgnoreCase);
+            // Explicit Cookie:Domain is preserved in the Set-Cookie header.
+            // The empty-Domain behaviour is strictly a fallback for local dev.
+            Assert.Contains("domain=.example.com", setCookie, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
