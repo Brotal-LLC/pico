@@ -18,7 +18,7 @@ The build followed the 8-phase pattern from the **`showcase-grade-take-home`** s
 | 1 | **OpenSpec artifacts** | Wrote `openspec/changes/pico-self-service-cloud/{proposal.md, tasks.md}` plus 4 capability specs (`identity`, `billing`, `catalog`, `provisioning`). | `openspec validate` passes; 152 numbered tasks |
 | 2 | **MoA-generated implementation plan** | Fed the OpenSpec artifacts to a Mixture-of-Agents (6 reference models + gpt-5.5 aggregator) workflow. Output was treated as a first draft, not ground truth. | `.hermes/plans/pico-implementation-plan.md` (cleaned up after execution) |
 | 3 | **Phased TDD execution** | 12 phases × 11–15 tasks each. Every task = failing test → minimal impl → green → commit. ~33 commits over the build window. | `git log --oneline | wc -l` = 33 |
-| 4 | **Deployment story** | `compose.yaml`, `Dockerfile.{dev,prod}` for both services, non-root containers (UID 1000), Caddy labels for `pico.aamar.cloud`, healthchecks on every service. | `docker compose up --build` from clean clone; demo creds work |
+| 4 | **Deployment story** | `compose.yaml`, `Dockerfile.{dev,prod}` for both services, non-root containers (UID 1000), Caddy labels for `<your-deployment-host>`, healthchecks on every service. | `docker compose up --build` from clean clone; demo creds work |
 | 5 | **Real infra flex** | Three provisioning backends behind `IProvisioningBackend`: `mock` (default, zero deps), `docker` (real containers), `openstack` (real Nova API). `mock` is what reviewers run. | `PROVISIONING_MODE` switches at boot |
 | 6 | **Brief rubric surfaced in docs** | Rewrote README to put the weighted KPI scorecard front-and-center; built REQUIREMENTS.md as the brief-↔-code mapping. The rubric lives in the docs, not in marketing copy. | Reviewer can find every brief criterion in `REQUIREMENTS.md` without scrolling |
 | 7 | **Audit-over-delivery** | After cycle-1 merged, ran the `multi-agent-code-audit` skill (6 parallel subagents + live probes). 32 findings; every CRITICAL/HIGH closed in 3 commits. Then cycle-2 added 14 more items (plan-preview, SLA, FK constraints, repo→public, vitest/playwright infra). Final: **96.0 / 100** weighted. | `AUDIT_REPORT.md §1` math |
@@ -54,7 +54,7 @@ From the 150+ skills available, these were the ones that actually shaped the bui
 | `spec-driven-dev` | OpenSpec artifact loop: proposal → specs → design → tasks → apply → archive. | 1 |
 | `multi-agent-code-audit` | 6 parallel subagents in cycle 1 to find what the build missed. Each subagent had a bounded prompt and reported back with a verifiable handle. | 7 |
 | `plan` | Bite-sized plans for individual phases (one phase = one markdown plan = many TDD tasks). | 3 |
-| `docker-caddy-deployment` | Caddy reverse-proxy labels + Cloudflare TLS via DNS challenge for `pico.aamar.cloud`. | 4 |
+| `docker-caddy-deployment` | Caddy reverse-proxy labels + Cloudflare TLS via DNS challenge for `<your-deployment-host>`. | 4 |
 | `docker-deploy-recreate-not-restart` | `--force-recreate` after every `docker build`. Stopped one 10-minute debugging loop cold. | 4, 7 |
 | `redactor-safe-compose-secrets` | Pattern for keeping `.env` out of YAML so the redactor doesn't mangle it. The `env_file:` injection pattern. | 4 |
 | `hermes-redacted-agent` | When a tool result showed `***` for a value I needed, this skill's quirk list was the source of truth (not SOUL.md notes). | All |
@@ -62,7 +62,7 @@ From the 150+ skills available, these were the ones that actually shaped the bui
 | `cavecrew` | When a subagent's tool-result would have flooded my context, I switched to caveman-compressed subagents (`cavecrew-investigator` / `-builder` / `-reviewer`). Saved ~60% tokens per dispatch. | 7 |
 | `openstack-devstack-kvm-setup` | The OpenStack `IProvisioningBackend` implementation (real Nova/Keystone v3 calls). | 5 |
 | `persistent-knowledge-stores` | Deciding what goes in MEMORY.md vs. ilma Postgres vs. ilma wiki. The "long → wiki, short → memory" rule kept MEMORY.md under the 2,200-char cap. | All |
-| `worktree-staged-visual-deploy` | Pattern for shipping a UI change to a URL for human-eyes verification without merging to main. Used to test the favicon + per-page-title change on `pico.aamar.cloud` before committing. | 7 |
+| `worktree-staged-visual-deploy` | Pattern for shipping a UI change to a URL for human-eyes verification without merging to main. Used to test the favicon + per-page-title change on `<your-deployment-host>` before committing. | 7 |
 | `interactive-prompt-design` | The `clarify` tool's UX bar — full question + every option visible BEFORE clicking. Saved one round-trip per decision. | All |
 
 ---

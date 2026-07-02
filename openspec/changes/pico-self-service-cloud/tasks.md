@@ -7,7 +7,7 @@
 - [x] 1.2 Create Next.js 16 frontend with Tailwind 4 + shadcn/ui patterns — verify: `npm run dev` starts without errors
 - [x] 1.3 Create Docker Compose with Postgres + API + Frontend, non-root containers — verify: `docker compose up --build` starts all services
 - [x] 1.4 Create .gitignore, .editorconfig, directory.build.props, pre-commit hook — verify: `git commit` triggers lint
-- [x] 1.5 Set up Caddy labels for `pico.aamar.cloud` — verify: Caddy routes to frontend and API
+- [x] 1.5 Set up Caddy labels for `<your-frontend-host>` — verify: Caddy routes to frontend and API
 
 ## 2. Domain Model & Persistence
 - [x] 2.1 Write domain entity tests (User, Flavor, Image, Resource, Invoice, AuditLog) — verify: tests fail (no entities yet)

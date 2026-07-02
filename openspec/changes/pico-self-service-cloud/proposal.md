@@ -38,9 +38,9 @@ The hiring manager wants to see infrastructure skills. We demonstrate this throu
 - **Infrastructure** (Docker Compose):
   - Single `compose.yaml` for self-contained local run
   - Postgres + API + Frontend
-  - Caddy labels for `pico.aamar.cloud` (local dev via infra caddy)
+  - Caddy labels for `<your-frontend-host>` (local dev via infra caddy)
   - Non-root containers throughout
-  - CORS whitelisted for: `pico.aamar.cloud`, `pico.ski.bd`, `localhost:3000`
+  - CORS whitelisted for: `<your-frontend-host>`, `<other-frontend-host>`, `localhost:3000`
 
 - **DevStack VM** (KVM on this machine):
   - Ubuntu 24.04 cloud image

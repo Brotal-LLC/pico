@@ -121,4 +121,4 @@ public interface IProvisioningBackend
 - **Unit** (`tests/Unit/`): Domain entity behavior, state machine transitions, pricing calculator, invoice generator, validation logic. Pure logic, no IO. Fast.
 - **Integration** (`tests/Integration/`): API endpoint tests with Testcontainers Postgres. Provisioning backend tests (mock mode via DB, docker mode via Testcontainers Docker-in-Docker). Full lifecycle: signup → provision → stop → start → terminate → invoice → pay.
 - **Regression** (`tests/Regression/`): One test per known bug found during development.
-- **Manual / visual**: Screenshot diff on `pico.aamar.cloud` for catalog, dashboard, resource detail, invoice, health page. Dark/light mode. Mobile breakpoint.
+- **Manual / visual**: Screenshot diff on `<your-frontend-host>` for catalog, dashboard, resource detail, invoice, health page. Dark/light mode. Mobile breakpoint.
