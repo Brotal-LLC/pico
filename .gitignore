@@ -61,3 +61,8 @@ logs/
 # Coverage reports
 lcov.info
 *.lcov
+
+# Hermes / agent plans — generated per-session, never part of the
+# delivered repo surface (deleted in 4c35a27 then re-added by the
+# frontend revamp merge; gitignoreing to keep the policy).
+.hermes/

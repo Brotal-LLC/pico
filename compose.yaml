@@ -98,6 +98,17 @@ services:
       # /dev/null mount so the default composes cleanly even without a
       # real socket.
       - ${DOCKER_SOCKET_MOUNT:-/dev/null:/dev/null:ro}
+      # Persist ASP.NET Core data-protection keys so API restarts don't
+      # invalidate the antiforgery cookie. Without this, every container
+      # restart wipes the in-container key ring at
+      # /home/ubuntu/.aspnet/DataProtection-Keys/ and login fails with
+      # 403 "antiforgery token could not be decrypted". Bind-mounted to
+      # a host cache dir so the keys persist across reviewer restarts
+      # without colliding with other clones (each gets its own project
+      # name in dev). Production overrides with a named Docker volume
+      # in compose.prod.yaml. Matches the Platform sibling repo's
+      # pattern (st-idp / st-cerebrum / st-notifications).
+      - pico-api-dpkeys:/var/aspnet-dpkeys
     group_add:
       - "973"
     healthcheck:
@@ -150,3 +161,6 @@ volumes:
   # gets its own isolated volume. Production pins the name in
   # compose.prod.yaml.
   pico-postgres-data:
+  # Persistent store for ASP.NET Core's data-protection keys. See the
+  # volume mount on the `api` service for why this matters.
+  pico-api-dpkeys:

@@ -65,6 +65,14 @@ volumes:
   # command from this repo reuses it.
   pico-postgres-data:
     name: pico-postgres-data
+  # Persist ASP.NET Core's data-protection keys across API container
+  # restarts. Without this, every API bounce wipes the in-container key
+  # ring and login fails with 403 "antiforgery token could not be
+  # decrypted" because the browser's existing Pico.Antiforgery cookie
+  # can no longer be decrypted. Pinned name keeps the keys around for
+  # the lifetime of the deployment. Matches Platform sibling pattern.
+  pico-api-dpkeys:
+    name: pico-api-dpkeys
 
 networks:
   pico_net:

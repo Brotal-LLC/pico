@@ -29,6 +29,16 @@ RUN set -eux; \
     fi; \
     mkdir -p /app && chown -R 1000:1000 /app
 
+# Pre-create the data-protection keys directory at /var/aspnet-dpkeys and
+# chown it to the non-root user. The compose.yaml / compose.prod.yaml
+# mounts this exact path as a Docker volume; if the mount target is owned
+# by root (Docker's default), the API process — running as uid 1000 — can
+# still write into it because the directory's contents are chowned to the
+# process user at build time. Without this step, the API logs a
+# "Permission denied" error the first time it tries to persist a key and
+# every protected payload (antiforgery cookies, etc.) fails to encrypt.
+RUN mkdir -p /var/aspnet-dpkeys && chown -R 1000:1000 /var/aspnet-dpkeys
+
 COPY --from=build --chown=1000:1000 /app/publish ./
 
 USER 1000

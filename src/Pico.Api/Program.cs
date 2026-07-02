@@ -9,6 +9,7 @@ using Pico.Infrastructure.Provisioning;
 using Pico.Infrastructure.Repositories;
 using Pico.Infrastructure.Seed;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
@@ -20,6 +21,38 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 builder.Configuration.AddEnvironmentVariables();
+
+// ─── Data Protection keys ─────────────────────────────────────────────────
+// Persist ASP.NET Core's data-protection keys to a filesystem path so they
+// survive container restarts. Without this, every container restart wipes
+// the key ring and invalidates existing antiforgery cookies (the browser
+// still has them, but the API can no longer decrypt them — login fails with
+// 403 "antiforgery token could not be decrypted"). Pattern matches the
+// Platform sibling repo (st-idp / st-cerebrum / st-notifications): env-driven
+// `DataProtection:KeysPath`, default `/var/aspnet-dpkeys`, mounted as a
+// Docker volume in compose.yaml / compose.prod.yaml.
+var dataProtectionKeysPath = builder.Environment.IsEnvironment("Testing")
+    ? Path.Combine(Path.GetTempPath(), "pico-api-dpkeys")
+    : builder.Configuration["DataProtection:KeysPath"] ?? "/var/aspnet-dpkeys";
+try
+{
+    Directory.CreateDirectory(dataProtectionKeysPath);
+}
+catch (UnauthorizedAccessException)
+{
+    // Tests / non-root environments may not be able to create the
+    // production default path. Fall back to a writable per-user
+    // location so the antiforgery flow keeps working without
+    // privileges escalation. In Docker compose (where this app
+    // actually runs), the volume is pre-created and writable by the
+    // configured service user, so this branch is never hit there.
+    var fallback = Path.Combine(Path.GetTempPath(), "pico-api-dpkeys");
+    Directory.CreateDirectory(fallback);
+    dataProtectionKeysPath = fallback;
+}
+builder.Services
+    .AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
 
 // Helper: ASP.NET's CookieBuilder emits `domain=;` (empty Domain attribute)
 // when the config value is an empty string instead of omitting the
