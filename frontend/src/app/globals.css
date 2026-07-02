@@ -24,8 +24,21 @@
   --color-warning: #d97706;
   --color-error: #dc2626;
 
-  --font-sans: "Inter", "ui-sans-serif", "system-ui", "sans-serif";
-  --font-mono: "JetBrains Mono", "ui-monospace", "monospace";
+  --font-sans: var(--font-sans-loaded), "Inter", "ui-sans-serif", "system-ui", "sans-serif";
+  --font-display: var(--font-display-loaded), "Newsreader", "ui-serif", "Georgia", "serif";
+  --font-mono: var(--font-mono-loaded), "JetBrains Mono", "ui-monospace", "monospace";
+
+  /* Motion tokens — used by framer-motion transitions and the CSS
+   * `--ease-*` / `--duration-*` variables below. Keep the cubic-bezier
+   * curves aligned with the SVG / CSS standard (0,0,0,1) end so spring
+   * physics don't fight the easing. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --duration-quick: 120ms;
+  --duration-standard: 200ms;
+  --duration-emphasized: 320ms;
+  --duration-page: 240ms;
 }
 
 /* Dark mode override — next-themes `attribute="class"` adds .dark to <html>.
@@ -63,6 +76,19 @@
   .font-mono {
     font-family: var(--font-mono);
     font-feature-settings: "tnum";
+  }
+  /* Display serif — used only for marketing headlines (landing hero, section
+   * titles). NOT used inside the dashboard. */
+  .font-display {
+    font-family: var(--font-display);
+    font-feature-settings: "ss01", "ss02";
+    letter-spacing: -0.02em;
+  }
+  /* Tabular numerals — numbers align column-wise without looking like code.
+   * Apply to <td>, <data>, price blocks, stat cards. Respects user's
+   * numeric-locale settings. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
   }
   /* 44pt+ touch targets */
   .touch-target {

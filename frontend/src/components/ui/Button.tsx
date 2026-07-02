@@ -22,12 +22,19 @@ const buttonStyles = cva(
         ghost: "bg-transparent text-foreground hover:bg-muted",
         danger:
           "bg-transparent text-error hover:bg-error/10 border border-error",
+        // New variants for the SaaS revamp — wire in Phase 4 (landing page).
+        shimmer: "bg-primary text-primary-foreground border border-primary",
+        link: "bg-transparent text-accent hover:underline underline-offset-4 border-transparent",
+        gradient: "bg-gradient-to-r from-accent to-accent/70 text-accent-foreground border-0",
       },
       size: {
         sm: "h-8 px-3 text-sm rounded-md",
         md: "h-10 px-4 text-sm rounded-md",
         lg: "h-12 px-6 text-base rounded-lg",
         icon: "h-10 w-10 rounded-md",
+        // New: compact icon size for in-table use (36px square — large
+        // enough to hit, small enough not to dominate row height).
+        "icon-sm": "h-9 w-9 rounded-md",
       },
     },
     defaultVariants: { variant: "primary", size: "md" },
