@@ -21,6 +21,15 @@ var builder = WebApplication.CreateBuilder(args);
 // ─── Configuration ─────────────────────────────────────────────────────────
 builder.Configuration.AddEnvironmentVariables();
 
+// Helper: ASP.NET's CookieBuilder emits `domain=;` (empty Domain attribute)
+// when the config value is an empty string instead of omitting the
+// attribute. Some browsers reject or mistreat that header, which can break
+// the antiforgery / auth cookie flow in local dev. Returns null when the
+// config value is null, missing, or whitespace, so the Domain attribute is
+// omitted and cookies are scoped to the exact host that issued them.
+static string? GetCookieDomain(IConfiguration config) =>
+    string.IsNullOrWhiteSpace(config["Cookie:Domain"]) ? null : config["Cookie:Domain"];
+
 // ─── Reverse proxy headers (Caddy / Cloudflare) ──────────────────────────
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -45,7 +54,19 @@ builder.Services.AddCors(options =>
 // ─── Persistence ─────────────────────────────────────────────────────────
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("ConnectionStrings__Default not configured");
-builder.Services.AddDbContext<PicoDbContext>(opts => opts.UseNpgsql(connectionString));
+// EnableRetryOnFailure wraps the EF Core execution strategy in Npgsql's
+// built-in retry policy. On cold starts the Docker embedded DNS resolver
+// (127.0.0.11) can briefly return EAGAIN to a host lookup, which would
+// otherwise surface as a fatal `Resource temporarily unavailable` from
+// `System.Net.Dns.GetHostEntryOrAddressesCore` during the very first
+// `MigrateAsync` call. The retry strategy transparently handles
+// transient connection-level failures during the lifetime of the app.
+builder.Services.AddDbContext<PicoDbContext>(opts => opts.UseNpgsql(
+    connectionString,
+    npg => npg.EnableRetryOnFailure(
+        maxRetryCount: 5,
+        maxRetryDelay: TimeSpan.FromSeconds(10),
+        errorCodesToAdd: null)));
 
 // ─── Rate limiting (Gap #S2 from AUDIT_REPORT.md) ────────────────────────
 // 5 login/signup attempts per 15 minutes per IP. Rejects with 429.
@@ -104,7 +125,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     {
         options.Cookie.Name = "Pico.Auth";
         options.Cookie.HttpOnly = true;
-        options.Cookie.Domain = builder.Configuration["Cookie:Domain"];
+        options.Cookie.Domain = GetCookieDomain(builder.Configuration);
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.SlidingExpiration = true;
@@ -126,7 +147,7 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "X-CSRF-TOKEN";
     options.Cookie.Name = "Pico.Antiforgery";
     options.Cookie.HttpOnly = true;
-    options.Cookie.Domain = builder.Configuration["Cookie:Domain"];
+    options.Cookie.Domain = GetCookieDomain(builder.Configuration);
     options.Cookie.SameSite = SameSiteMode.Lax;
     options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 });
