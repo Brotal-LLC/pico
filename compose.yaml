@@ -61,8 +61,15 @@ services:
       OpenStack__Password: ${OpenStack__Password:-}
       OpenStack__ProjectName: ${OpenStack__ProjectName:-admin}
       OpenStack__Region: ${OpenStack__Region:-RegionOne}
-      Cors__AllowedOrigins: ${Cors__AllowedOrigins:-https://pico.aamar.cloud}
-      Cookie__Domain: ${Cookie__Domain:-.aamar.cloud}
+      # Default: localhost:3000 so a fresh `docker compose up --build`
+      # on a reviewer's machine works out of the box. Production overrides
+      # this via .env (e.g. https://pico.aamar.cloud). To allow both at
+      # once, set Cors__AllowedOrigins to a comma-separated list.
+      Cors__AllowedOrigins: ${Cors__AllowedOrigins:-http://localhost:3000}
+      # Default: empty (cookies scoped to the exact API host). Production
+      # overrides this to `.aamar.cloud` so the auth/AF cookies are sent
+      # from the frontend (pico.aamar.cloud) to the API (pico-api.aamar.cloud).
+      Cookie__Domain: ${Cookie__Domain:-}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
       - ${DOCKER_SOCKET_MOUNT:-/dev/null:/dev/null:ro}
@@ -89,7 +96,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://pico-api.aamar.cloud}
+        # Default: localhost:8080 so a fresh `docker compose up --build`
+        # on a reviewer's machine works out of the box. Production overrides
+        # this via .env (e.g. https://pico-api.aamar.cloud).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     image: pico-frontend:local
     container_name: pico-frontend
     mem_limit: 2g
@@ -98,7 +108,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://pico-api.aamar.cloud}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
       API_URL: http://api:8080
       NODE_ENV: production
     healthcheck:
