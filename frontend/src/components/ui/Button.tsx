@@ -34,6 +34,16 @@ const buttonStyles = cva(
   }
 );
 
+/**
+ * Compose a button class string for non-`<button>` elements (e.g. the
+ * animated theme toggler primitive that renders its own button).
+ */
+export function buttonClass(
+  ...inputs: Parameters<typeof buttonStyles>
+): string {
+  return buttonStyles(...inputs);
+}
+
 export interface ButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonStyles> {

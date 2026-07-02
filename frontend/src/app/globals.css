@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
-/* Semantic color tokens — minimalist palette, AA contrast */
+/* Semantic color tokens — minimalist palette, AA contrast.
+ *
+ * IMPORTANT: In Tailwind v4, every `@theme { ... }` block is merged into
+ * a single `:root, :host` declaration. If we add a second `@theme` block
+ * inside `@media (prefers-color-scheme: dark)`, those tokens OVERWRITE the
+ * light tokens in `:root` unconditionally (for properties declared in
+ * both blocks), so light users see dark colors. We therefore declare
+ * only the LIGHT defaults here and override dark tokens via plain CSS
+ * on `.dark` (which beats `:root` by selector specificity).
+ */
 @theme {
   --color-background: #ffffff;
   --color-foreground: #0a0a0a;
@@ -19,19 +28,10 @@
   --font-mono: "JetBrains Mono", "ui-monospace", "monospace";
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-background: #0a0a0a;
-    --color-foreground: #fafafa;
-    --color-border: #262626;
-    --color-muted: #171717;
-    --color-muted-foreground: #a3a3a3;
-    --color-primary: #fafafa;
-    --color-primary-foreground: #0a0a0a;
-  }
-}
-
-/* Dark mode toggle override — Next.js next-themes class strategy */
+/* Dark mode override — next-themes `attribute="class"` adds .dark to <html>.
+ * `.dark` (specificity 0,1,0) wins over `:root` (0,0,1) so the token
+ * values flip when the user toggles (or system preference is dark).
+ */
 .dark {
   --color-background: #0a0a0a;
   --color-foreground: #fafafa;
@@ -69,4 +69,21 @@
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* AnimatedThemeToggler — Magic UI view-transition plumbing.
+ * The component sets `html[data-magicui-theme-vt="active"]` during a
+ * theme change and pins the collapsed clip-path on the "new" snapshot
+ * so the new theme does not flash before the JS animation starts.
+ * The `::view-transition-old(root)` is fully transparent so the
+ * previous frame does not bleed through during the reveal.
+ */
+html[data-magicui-theme-vt="active"]::view-transition-group(root) {
+  animation-duration: var(--magicui-theme-toggle-vt-duration);
+}
+html[data-magicui-theme-vt="active"]::view-transition-new(root) {
+  clip-path: var(--magicui-theme-vt-clip-from);
+}
+html[data-magicui-theme-vt="active"]::view-transition-old(root) {
+  opacity: 0;
 }
