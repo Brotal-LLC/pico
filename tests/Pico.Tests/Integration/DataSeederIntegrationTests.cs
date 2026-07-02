@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Pico.Application.Common;
+using Pico.Application.Provisioning;
 using Pico.Domain.Enums;
 using Pico.Infrastructure.Persistence;
+using Pico.Infrastructure.Provisioning;
 using Pico.Infrastructure.Seed;
 using Xunit;
 
@@ -36,7 +38,7 @@ public class DataSeederIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task SeedAsync_ColdBoot_PopulatesCatalogAndUsers()
     {
-        var seeder = new DataSeeder(new PasswordHasher());
+        var seeder = new DataSeeder(new PasswordHasher(), new MockProvisioningBackend());
         await seeder.SeedAsync(_db, CancellationToken.None);
 
         // Catalog
@@ -59,7 +61,7 @@ public class DataSeederIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task SeedAsync_ColdBoot_ProducesInvoiceHistoryWithMixOfStatuses()
     {
-        var seeder = new DataSeeder(new PasswordHasher());
+        var seeder = new DataSeeder(new PasswordHasher(), new MockProvisioningBackend());
         await seeder.SeedAsync(_db, CancellationToken.None);
 
         var demo = await _db.Users.FirstAsync(u => u.Email == "demo@pico.local", CancellationToken.None);
@@ -77,7 +79,7 @@ public class DataSeederIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task SeedAsync_ColdBoot_CurrentPendingInvoiceHasMultipleLineItems()
     {
-        var seeder = new DataSeeder(new PasswordHasher());
+        var seeder = new DataSeeder(new PasswordHasher(), new MockProvisioningBackend());
         await seeder.SeedAsync(_db, CancellationToken.None);
 
         var demo = await _db.Users.FirstAsync(u => u.Email == "demo@pico.local", CancellationToken.None);
@@ -106,7 +108,7 @@ public class DataSeederIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task SeedAsync_ColdBoot_PaidInvoicesHavePaidAtAndZeroPendingTotal()
     {
-        var seeder = new DataSeeder(new PasswordHasher());
+        var seeder = new DataSeeder(new PasswordHasher(), new MockProvisioningBackend());
         await seeder.SeedAsync(_db, CancellationToken.None);
 
         var demo = await _db.Users.FirstAsync(u => u.Email == "demo@pico.local", CancellationToken.None);
@@ -125,7 +127,7 @@ public class DataSeederIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task SeedAsync_CalledTwice_DoesNotDuplicate()
     {
-        var seeder = new DataSeeder(new PasswordHasher());
+        var seeder = new DataSeeder(new PasswordHasher(), new MockProvisioningBackend());
         await seeder.SeedAsync(_db, CancellationToken.None);
         await seeder.SeedAsync(_db, CancellationToken.None);
 
