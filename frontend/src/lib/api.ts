@@ -221,6 +221,16 @@ export const resources = {
     request<ResourceSummary>(`/api/resources/${id}/stop`, { method: "POST", body: {} }),
   terminate: (id: string) =>
     request<ResourceSummary>(`/api/resources/${id}`, { method: "DELETE" }),
+  /**
+   * Clone a (typically Terminated) resource into a fresh provision with
+   * the same flavor + image. Server picks a unique name (`{name}-copy-N`).
+   * Returns the new resource; caller should redirect to its detail page.
+   */
+  recreate: (id: string) =>
+    request<ResourceSummary>(`/api/resources/${id}/recreate`, {
+      method: "POST",
+      body: {},
+    }),
   usage: (id: string) => request<ResourceUsage>(`/api/resources/${id}/usage`),
   eventsUrl: (id: string) => `${API_URL}/api/resources/${id}/events`,
 };

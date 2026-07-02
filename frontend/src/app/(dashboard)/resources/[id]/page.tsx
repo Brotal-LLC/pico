@@ -5,13 +5,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { resources, ResourceDetail, ResourceEvent } from "@/lib/api";
+import { resources, ResourceDetail, ResourceEvent, catalog } from "@/lib/api";
 import { usePageTitle } from "@/lib/use-page-title";
 import { Card, CardBody, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/Badge";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { ArrowLeft, Play, Square, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Play,
+  Square,
+  Trash2,
+  RotateCcw,
+  Cpu,
+  MemoryStick,
+  HardDrive,
+} from "lucide-react";
 import { formatBytes, formatRelativeTime, getErrorMessage } from "@/lib/utils";
 
 function dedupeEvents(items: ResourceEvent[]) {
@@ -21,6 +30,21 @@ function dedupeEvents(items: ResourceEvent[]) {
     seen.add(event.id);
     return true;
   });
+}
+
+/**
+ * Resources reach a handful of "operable" states where lifecycle actions
+ * make sense. Outside those (Created/Provisioning transitions are
+ * system-driven; Terminated/Failed are terminal), we either hide the
+ * controls (during Provisioning) or replace them with a Recreate CTA
+ * (for Terminated/Failed historical VMs).
+ */
+function getLifecycleMode(detail: ResourceDetail | undefined): "operable" | "provisioning" | "historical" | "failed" {
+  if (!detail) return "operable";
+  if (detail.status === "Provisioning" || detail.status === "Created") return "provisioning";
+  if (detail.status === "Terminated") return "historical";
+  if (detail.status === "Failed") return "failed";
+  return "operable"; // Running | Stopped
 }
 
 export default function ResourceDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -53,6 +77,23 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
     queryKey: ["resource-usage", id],
     queryFn: () => resources.usage(id),
     refetchInterval: 5000,
+  });
+
+  // Flavor + image for the "Recreate with same config" summary card.
+  // Fetched lazily so operable VMs don't pay for this round-trip.
+  const showRecreateContext = getLifecycleMode(detail) === "historical" || getLifecycleMode(detail) === "failed";
+  const { data: flavor } = useQuery({
+    queryKey: ["flavor", detail?.flavorId],
+    queryFn: () => catalog.flavor(detail!.flavorId),
+    enabled: showRecreateContext && Boolean(detail?.flavorId),
+  });
+  const { data: image } = useQuery({
+    queryKey: ["image", detail?.imageId],
+    queryFn: async () => {
+      const images = await catalog.images();
+      return images.find((i) => i.id === detail!.imageId) ?? null;
+    },
+    enabled: showRecreateContext && Boolean(detail?.imageId),
   });
 
   const [events, setEvents] = useState<ResourceEvent[]>([]);
@@ -105,6 +146,15 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
     },
     onError: (e) => toast.error(getErrorMessage(e, "Terminate failed")),
   });
+  const recreate = useMutation({
+    mutationFn: () => resources.recreate(id),
+    onSuccess: (newResource) => {
+      toast.success(`Created ${newResource.name}`);
+      qc.invalidateQueries({ queryKey: ["resources"] });
+      router.push(`/resources/${newResource.id}`);
+    },
+    onError: (e) => toast.error(getErrorMessage(e, "Recreate failed")),
+  });
 
   if (isLoading) return <PageSpinner />;
 
@@ -141,14 +191,16 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
   }
 
   const allEvents = dedupeEvents([...(detail.events ?? []), ...events]);
-  const isRunning = detail.status === "Running";
-  const isStopped = detail.status === "Stopped";
-  const isProvisioning = detail.status === "Provisioning" || detail.status === "Created";
-  const isTerminal = detail.status === "Terminated" || detail.status === "Failed";
+  const mode = getLifecycleMode(detail);
 
   const confirmTerminate = () => {
     if (window.confirm(`Terminate ${detail.name}? This action cannot be undone.`)) {
       terminate.mutate();
+    }
+  };
+  const confirmRecreate = () => {
+    if (window.confirm(`Recreate ${detail.name} with the same configuration?`)) {
+      recreate.mutate();
     }
   };
 
@@ -169,37 +221,119 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
             )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {!isTerminal && (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => start.mutate()}
-                disabled={start.isPending || !isStopped}
-              >
-                <Play className="h-4 w-4" />
-                Start
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => stop.mutate()}
-                disabled={stop.isPending || !isRunning || isProvisioning}
-              >
-                <Square className="h-4 w-4" />
-                Stop
-              </Button>
-              <Button
-                variant="danger"
-                onClick={confirmTerminate}
-                disabled={terminate.isPending}
-              >
-                <Trash2 className="h-4 w-4" />
-                Terminate
-              </Button>
-            </>
-          )}
-        </div>
+
+        {/*
+         * Action area — three modes:
+         *
+         *  1. operable    — Running | Stopped. Show all three buttons; the
+         *                   server enforces state-machine validity, so users
+         *                   can try Start on a Running VM and get a clear
+         *                   "Invalid transition" toast.
+         *  2. provisioning — hide controls; the system is mid-flight.
+         *  3. historical   — Terminated | Failed. Replace controls with a
+         *                   "Recreate with same config" CTA so the user can
+         *                   bring the same flavor/image back to life.
+         */}
+        {mode === "operable" && (
+          <div className="flex flex-wrap gap-2">
+            {/*
+             * Always show all three buttons. Disable only while a mutation
+             * is in flight — the server enforces state-machine validity,
+             * so a Stop on a Stopped VM returns a clear "Invalid
+             * transition" toast instead of a silently-disabled button.
+             * This matches the "each VM should have all lifecycle options"
+             * request: the buttons are a UI affordance, not a state guard.
+             */}
+            <Button
+              variant="outline"
+              onClick={() => start.mutate()}
+              disabled={start.isPending}
+            >
+              <Play className="h-4 w-4" />
+              Start
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => stop.mutate()}
+              disabled={stop.isPending}
+            >
+              <Square className="h-4 w-4" />
+              Stop
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmTerminate}
+              disabled={terminate.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+              Terminate
+            </Button>
+          </div>
+        )}
+
+        {mode === "provisioning" && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled>
+              <Play className="h-4 w-4" />
+              Provisioning…
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmTerminate}
+              disabled={terminate.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+              Terminate
+            </Button>
+          </div>
+        )}
+
+        {(mode === "historical" || mode === "failed") && (
+          <Button
+            variant="primary"
+            onClick={confirmRecreate}
+            disabled={recreate.isPending}
+          >
+            <RotateCcw className="h-4 w-4" />
+            {recreate.isPending ? "Recreating…" : "Recreate with same config"}
+          </Button>
+        )}
       </div>
+
+      {mode === "historical" && flavor && image && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Original configuration</CardTitle>
+            <CardDescription className="mt-1">
+              Recreating will provision a new VM with these specs.
+            </CardDescription>
+          </CardHeader>
+          <CardBody>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <ConfigItem
+                icon={<Cpu className="h-4 w-4" />}
+                label="Package"
+                value={flavor.name}
+              />
+              <ConfigItem
+                icon={<MemoryStick className="h-4 w-4" />}
+                label="Image"
+                value={`${image.os} ${image.version}`}
+              />
+              <ConfigItem
+                icon={<HardDrive className="h-4 w-4" />}
+                label="Resources"
+                value={`${flavor.vcpus} vCPU · ${(flavor.ramMb / 1024).toFixed(0)} GB RAM`}
+              />
+              <ConfigItem
+                icon={<HardDrive className="h-4 w-4" />}
+                label="Created"
+                value={formatRelativeTime(detail.createdAt)}
+              />
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {usageIsError && (
         <Card>
@@ -279,6 +413,26 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
           )}
         </CardBody>
       </Card>
+    </div>
+  );
+}
+
+function ConfigItem({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        {icon}
+        <span className="text-xs">{label}</span>
+      </div>
+      <div className="font-mono font-medium mt-1">{value}</div>
     </div>
   );
 }
