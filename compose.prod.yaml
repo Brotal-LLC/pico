@@ -1,0 +1,69 @@
+# PICO — Production overlay. Extends compose.yaml with the bits a
+# reviewer-machine stack never needs:
+#
+#   - Caddy reverse-proxy labels (the `caddy` MCP container in `infra/`
+#     watches for these and routes pico.aamar.cloud / pico-api.aamar.cloud
+#     onto the API + frontend containers).
+#   - Caddy `flush_interval: -1` flush disables so streaming responses work
+#   - `ingress` external network so the caddy MCP container can resolve
+#     pico-api / pico-frontend by container name.
+#   - Pinned container_name + volume names so the (single) production
+#     state survives `docker compose down` (no `-v`) and rebuilds without
+#     surprises.
+#   - PROVISIONING_MODE=docker defaults for the live backend.
+#
+# Activate by either:
+#   $env:COMPOSE_FILE = "compose.yaml:compose.prod.yaml"   # powershell
+#   COMPOSE_FILE=compose.yaml:compose.prod.yaml docker compose up -d --build
+#
+# or by setting the variable in .env (see .env.example).
+
+name: pico
+
+# Services declared in compose.yaml; this overlay only adds fields to the
+# existing services (under `services.<name>` keys) and adds a network.
+services:
+  postgres:
+    container_name: pico-postgres
+    # Postgres lives on the same `pico_net` as the API and frontend so the
+    # embedded DNS resolver (127.0.0.11) inside the API can resolve
+    # `postgres` by container name. Without this, the API container sits
+    # only on `pico_net` + `ingress` (per the overlay) and the default
+    # `pico_default` network's DNS records are invisible to it.
+    networks:
+      - pico_net
+
+  api:
+    container_name: pico-api
+    environment:
+      PROVISIONING_MODE: ${PROVISIONING_MODE:-docker}
+    networks:
+      - pico_net
+      - ingress
+    labels:
+      caddy: pico-api.aamar.cloud
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+
+  frontend:
+    container_name: pico-frontend
+    networks:
+      - pico_net
+      - ingress
+    labels:
+      caddy: pico.aamar.cloud
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+      caddy.reverse_proxy.flush_interval: "-1"
+
+volumes:
+  # Override the project-prefixed volume declared in compose.yaml with a
+  # fixed, known-good name. Combined with `name: pico` above, this is the
+  # one volume the production deployment uses — every docker compose
+  # command from this repo reuses it.
+  pico-postgres-data:
+    name: pico-postgres-data
+
+networks:
+  pico_net:
+    name: pico_net
+  ingress:
+    external: true

@@ -1,24 +1,38 @@
-name: pico
+# PICO — Self-Service Cloud Module — Local development Compose file.
+#
+# Reviewer workflow:
+#   cp .env.example .env
+#   docker compose up --build
+#   open http://localhost:3000
+#   login with demo@pico.local / pico-demo-password
+#
+# Production overlays this file with compose.prod.yaml:
+#   COMPOSE_FILE=compose.yaml:compose.prod.yaml docker compose up --build
+# When both files are loaded, compose.prod.yaml layers Caddy labels, the
+# ingress network, and pinned container / volume names on top of the
+# services declared here.
+#
+# This file alone (no overlay) is a fully self-contained reviewer stack:
+#   - mock provisioning backend (no Docker socket required)
+#   - localhost:3000 / localhost:8080 ports exposed directly
+#   - CORS allowed origin = http://localhost:3000
+#   - cookie domain = empty (cookies scoped to the exact API host)
+#   - default project network (no name pinning, so multiple reviewers on
+#     the same machine each get isolated volumes / networks)
+#
+# Recovery: if you ever see "password authentication failed for user pico",
+# the Postgres volume was initialised with a different password. Run:
+#   docker compose down -v && docker compose up --build
+# The `-v` deletes the stale data volume and lets it be reinitialised
+# with whatever POSTGRES_PASSWORD is in .env.
 
-# PICO — Self-Service Cloud Module
-# Single-file Docker Compose for self-contained reviewer experience.
-# Run: docker compose up --build
-#
-# Stack:
-#   postgres  - PostgreSQL 16 (data persistence)
-#   api       - .NET 10 backend (Minimal API, EF Core, provisioning engine)
-#   frontend  - Next.js 16 frontend (App Router, TanStack Query)
-#
-# Networking:
-#   - Internal: all services on `pico_net` (auto-created)
-#   - External: Caddy reverse proxy on `ingress` network
-#     exposes pico.aamar.cloud (frontend) and pico-api.aamar.cloud (API)
-#   - For local-only runs (no Caddy), ports are exposed directly.
+name: pico-dev
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: pico-postgres
+    # No container_name: each reviewer gets their own (project-prefixed)
+    # container, so two reviewers on the same host don't collide.
     mem_limit: 1g
     cpus: "1.00"
     restart: unless-stopped
@@ -28,6 +42,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-pico}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
+      # Project-prefixed volume name: each reviewer / test clone gets its
+      # own isolated data directory. Eliminates the "stale password" trap
+      # entirely — a reviewer who previously ran a different shell
+      # cannot infect this run.
       - pico-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pico} -d ${POSTGRES_DB:-pico}"]
@@ -35,15 +53,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks:
-      - pico_net
 
   api:
     build:
       context: .
       dockerfile: backend/Dockerfile.prod
     image: pico-api:local
-    container_name: pico-api
+    # No container_name in dev: lets multiple clones coexist on one host.
     mem_limit: 2g
     cpus: "2.00"
     restart: unless-stopped
@@ -55,6 +71,8 @@ services:
       ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-pico};Username=${POSTGRES_USER:-pico};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       Database__AutoMigrate: "true"
       Database__SeedDemoData: "true"
+      # Default: mock provisioning so a reviewer can run without Docker
+      # socket access. Production overrides this via compose.prod.yaml.
       PROVISIONING_MODE: ${PROVISIONING_MODE:-mock}
       OpenStack__AuthUrl: ${OpenStack__AuthUrl:-http://192.168.122.43:5000/v3}
       OpenStack__Username: ${OpenStack__Username:-admin}
@@ -67,11 +85,18 @@ services:
       # once, set Cors__AllowedOrigins to a comma-separated list.
       Cors__AllowedOrigins: ${Cors__AllowedOrigins:-http://localhost:3000}
       # Default: empty (cookies scoped to the exact API host). Production
-      # overrides this to `.aamar.cloud` so the auth/AF cookies are sent
-      # from the frontend (pico.aamar.cloud) to the API (pico-api.aamar.cloud).
+      # can leave this empty too — once the cookie-Domain attribute is
+      # omitted entirely, the browser scopes cookies to whichever host
+      # issued them (pico-api.aamar.cloud in prod, localhost:8080 in dev).
       Cookie__Domain: ${Cookie__Domain:-}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
+      # Default: docker socket mounted read-only so the API can talk to
+      # Docker for the docker provisioning mode. Mock mode (the dev
+      # default) does not need this, but a reviewer who overrides to
+      # PROVISIONING_MODE=docker will. The example file uses a harmless
+      # /dev/null mount so the default composes cleanly even without a
+      # real socket.
       - ${DOCKER_SOCKET_MOUNT:-/dev/null:/dev/null:ro}
     group_add:
       - "973"
@@ -79,17 +104,17 @@ services:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
       interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      # Generous start_period covers the cold-boot path: the database
+      # healthcheck wait + EF migration + DataSeeder. On a fresh volume
+      # the seeder runs the catalog, two users, one resource, and three
+      # invoices. 60s is comfortable for any reasonable reviewer laptop
+      # while keeping the failure signal crisp when something is genuinely
+      # wrong.
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - pico_net
-      - ingress
-    labels:
-      caddy: pico-api.aamar.cloud
-      caddy.reverse_proxy: "{{upstreams 8080}}"
 
   frontend:
     build:
@@ -97,11 +122,10 @@ services:
       dockerfile: Dockerfile.prod
       args:
         # Default: localhost:8080 so a fresh `docker compose up --build`
-        # on a reviewer's machine works out of the box. Production overrides
-        # this via .env (e.g. https://pico-api.aamar.cloud).
+        # on a reviewer's machine works out of the box. Production
+        # overrides this via .env (e.g. https://pico-api.aamar.cloud).
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     image: pico-frontend:local
-    container_name: pico-frontend
     mem_limit: 2g
     cpus: "2.00"
     restart: unless-stopped
@@ -120,22 +144,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks:
-      - pico_net
-      - ingress
-    labels:
-      caddy: pico.aamar.cloud
-      caddy.reverse_proxy: "{{upstreams 3000}}"
-      caddy.reverse_proxy.flush_interval: "-1"
 
 volumes:
+  # Project-prefixed (no `name:` override), so each reviewer / test clone
+  # gets its own isolated volume. Production pins the name in
+  # compose.prod.yaml.
   pico-postgres-data:
-    name: pico-postgres-data
-  frontend-node-modules:
-    name: pico-frontend-node-modules
-
-networks:
-  pico_net:
-    name: pico_net
-  ingress:
-    external: true
