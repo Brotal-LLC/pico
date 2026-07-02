@@ -139,6 +139,29 @@ public static class ResourceEndpoints
             return Results.Ok(result.Value);
         });
 
+        // Recreate — clone a source VM's flavor + image into a fresh provision
+        // request. Most useful for Terminated/Failed historical VMs that the
+        // user wants to bring back with the same config. The source is left
+        // untouched (event trail preserved).
+        group.MapPost("/{id:guid}/recreate", async (
+            Guid id,
+            ResourceService svc,
+            IAuditLogRepository auditLogs,
+            HttpContext ctx,
+            CancellationToken ct) =>
+        {
+            var userId = AuthEndpoints.GetCurrentUserId(ctx);
+            if (userId is null) return Results.Unauthorized();
+            var result = await svc.RecreateAsync(id, userId.Value, ct);
+            if (!result.IsSuccess)
+                return result.ErrorMessage == "Forbidden" ? Results.Forbid() : Results.BadRequest(new { detail = result.ErrorMessage });
+            await auditLogs.AddAsync(
+                AuditLog.Create(userId.Value, "resource.recreate", "Resource", result.Value!.Id,
+                    $"{{\"sourceResourceId\":\"{id}\"}}"),
+                ct);
+            return Results.Created($"/api/resources/{result.Value!.Id}", result.Value);
+        });
+
         // Usage (ownership-enforced)
         group.MapGet("/{id:guid}/usage", async (Guid id, ResourceService svc, HttpContext ctx, CancellationToken ct) =>
         {

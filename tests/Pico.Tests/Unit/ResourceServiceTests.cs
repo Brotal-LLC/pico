@@ -342,4 +342,80 @@ public class ResourceServiceTests
         Assert.Contains(preview.Value!.Warnings, w => w.Contains("burstable", StringComparison.OrdinalIgnoreCase));
     }
 
+    // ─── RecreateAsync tests ────────────────────────────────────────────
+
+    [Fact]
+    public async Task RecreateAsync_FromTerminatedSource_ClonesConfigIntoRunningResource()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        // Set up source VM and walk it to Terminated (Running → Terminated is valid)
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("legacy-vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var sourceId = p.Value!.Id;
+        repo.Resources[sourceId].TransitionTo(Domain.Enums.ResourceStatus.Terminated, "manual");
+        await repo.UpdateAsync(repo.Resources[sourceId], CancellationToken.None);
+
+        var result = await svc.RecreateAsync(sourceId, UserId, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        // Should have created a new resource alongside the source
+        Assert.Equal(2, repo.Resources.Count);
+        var created = repo.Resources.Values.Single(r => r.Id != sourceId);
+        Assert.Equal("legacy-vm-copy-2", created.Name);
+        Assert.Equal(TestFlavor.Id, created.FlavorId);
+        Assert.Equal(TestImage.Id, created.ImageId);
+        Assert.Equal(Domain.Enums.ResourceStatus.Running, created.Status);
     }
+
+    [Fact]
+    public async Task RecreateAsync_AppendsToCopySeries_WhenNameCollides()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        // Set up source VM, terminate it
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("legacy", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var sourceId = p.Value!.Id;
+        repo.Resources[sourceId].TransitionTo(Domain.Enums.ResourceStatus.Terminated, "manual");
+        await repo.UpdateAsync(repo.Resources[sourceId], CancellationToken.None);
+
+        // First recreate → "legacy-copy-2"
+        var r1 = await svc.RecreateAsync(sourceId, UserId, CancellationToken.None);
+        Assert.True(r1.IsSuccess);
+        Assert.Equal("legacy-copy-2", repo.Resources.Values.Single(r => r.Id != sourceId).Name);
+
+        // Walk the new one to Terminated so the naming check is fresh
+        var copy2Id = repo.Resources.Values.Single(r => r.Id != sourceId).Id;
+        repo.Resources[copy2Id].TransitionTo(Domain.Enums.ResourceStatus.Terminated, "manual");
+
+        // Second recreate from the original source → "legacy-copy-3"
+        var r2 = await svc.RecreateAsync(sourceId, UserId, CancellationToken.None);
+        Assert.True(r2.IsSuccess);
+        Assert.Contains(repo.Resources.Values, r => r.Name == "legacy-copy-3");
+    }
+
+    [Fact]
+    public async Task RecreateAsync_OtherUsersSource_ReturnsForbidden()
+    {
+        var (repo, _, _, svc) = Setup();
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("mine", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var sourceId = p.Value!.Id;
+
+        var differentUser = Guid.NewGuid();
+        var result = await svc.RecreateAsync(sourceId, differentUser, CancellationToken.None);
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Forbidden", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RecreateAsync_MissingSource_ReturnsFailure()
+    {
+        var (_, _, _, svc) = Setup();
+        var result = await svc.RecreateAsync(Guid.NewGuid(), UserId, CancellationToken.None);
+        Assert.False(result.IsSuccess);
+        Assert.Contains("not found", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+}

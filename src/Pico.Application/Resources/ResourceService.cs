@@ -295,6 +295,60 @@ public class ResourceService
         return Result<ResourceSummaryDto>.Success(ToSummary(resource));
     }
 
+    /// <summary>
+    /// Clone a terminated (or any) resource into a fresh provision request,
+    /// reusing the source's flavor + image and generating a unique name.
+    /// Used by the "Recreate with same config" CTA on historical VMs.
+    ///
+    /// The original resource is left untouched — its event trail stays as-is
+    /// for historical reference. The new resource goes through the normal
+    /// Created → Provisioning → Running flow via ProvisionAsync.
+    /// </summary>
+    public async Task<Result<ResourceSummaryDto>> RecreateAsync(
+        Guid sourceResourceId, Guid userId, CancellationToken ct)
+    {
+        var source = await _resources.FindByIdAsync(sourceResourceId, ct);
+        if (source is null)
+            return Result<ResourceSummaryDto>.Failure("Source resource not found");
+        if (source.UserId != userId)
+            return Result<ResourceSummaryDto>.Failure("Forbidden");
+
+        // Recreate is most useful for Terminated/Failed VMs but works for any
+        // state — the user might want to "spin up a twin" of a Running VM
+        // for load testing. We just refuse if the source flavor/image are
+        // no longer active (e.g. EOL'd catalog entries).
+        var flavor = await _flavors.FindByIdAsync(source.FlavorId, ct);
+        if (flavor is null || !flavor.Active)
+            return Result<ResourceSummaryDto>.Failure("Source flavor is no longer available");
+
+        var image = await _images.FindByIdAsync(source.ImageId, ct);
+        if (image is null)
+            return Result<ResourceSummaryDto>.Failure("Source image is no longer available");
+
+        // Generate a unique name: "{sourceName}-copy-{n}" where n is the
+        // smallest non-colliding integer starting at 2. Cap retries so a
+        // pathological case (1000+ copies) doesn't loop forever.
+        var baseName = source.Name;
+        var newName = $"{baseName}-copy-2";
+        for (var n = 2; n <= 1000; n++)
+        {
+            var candidate = $"{baseName}-copy-{n}";
+            // Cheap existence check via the user's existing names
+            var existing = await _resources.ListByUserAsync(userId, ct);
+            if (!existing.Any(r => string.Equals(r.Name, candidate, StringComparison.Ordinal)))
+            {
+                newName = candidate;
+                break;
+            }
+            newName = candidate;
+        }
+
+        return await ProvisionAsync(
+            userId,
+            new ProvisionRequestDto(newName, source.FlavorId, source.ImageId),
+            ct);
+    }
+
     public async Task<IReadOnlyList<ResourceSummaryDto>> ListUserResourcesAsync(Guid userId, CancellationToken ct)
     {
         var resources = await _resources.ListByUserAsync(userId, ct);
