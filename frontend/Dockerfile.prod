@@ -2,7 +2,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
-ARG NEXT_PUBLIC_API_URL=https://pico-api.aamar.cloud
+ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Install deps with lockfile for reproducibility

@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
  * expects the preview card to render with cost + image fit + warnings.
  *
  * Requires:
- *   - Stack reachable at process.env.PLAYWRIGHT_BASE_URL (default: https://pico.aamar.cloud)
+ *   - Stack reachable at process.env.PLAYWRIGHT_BASE_URL
  *   - Demo credentials: demo@pico.local / localdev123
  */
 test.describe("Provision plan preview", () => {
@@ -27,7 +27,7 @@ test.describe("Provision plan preview", () => {
     await expect(page.getByText(/os image/i)).toBeVisible();
   });
 
-  test("security headers are present on every response", async ({ page }) => {
+  test("security headers are present on every response", async ({ page, baseURL }) => {
     const responses: Array<{ url: string; headers: Record<string, string> }> = [];
     page.on("response", (res) => {
       responses.push({ url: res.url(), headers: res.headers() });
@@ -36,9 +36,18 @@ test.describe("Provision plan preview", () => {
     await page.goto("/");
     await page.goto("/catalog");
 
-    // At least one of our app responses should carry the security headers
-    // that the audit rubric grades on (Gap #2 from AUDIT_REPORT.md).
-    const ourResponses = responses.filter((r) => /pico\.aamar\.cloud/.test(r.url));
+    // Match responses that came from the stack under test (i.e. the
+    // configured PLAYWRIGHT_BASE_URL), not third-party assets. We build
+    // a same-origin predicate from the baseURL rather than hardcoding a
+    // production hostname so the test stays portable.
+    const baseOrigin = new URL(baseURL ?? "http://localhost:3000").origin;
+    const ourResponses = responses.filter((r) => {
+      try {
+        return new URL(r.url).origin === baseOrigin;
+      } catch {
+        return false;
+      }
+    });
     expect(ourResponses.length).toBeGreaterThan(0);
     const sample = ourResponses.find((r) =>
       r.headers["x-content-type-options"]

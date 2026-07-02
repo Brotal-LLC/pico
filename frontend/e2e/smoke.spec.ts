@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * Smoke test against the live PICO stack. Verifies the public surface
+ * Smoke test against a running PICO stack. Verifies the public surface
  * (landing + catalog + auth flow). Requires:
- *   - Stack reachable at process.env.PLAYWRIGHT_BASE_URL (default: https://pico.aamar.cloud)
+ *   - Stack reachable at process.env.PLAYWRIGHT_BASE_URL
  *   - Demo credentials: demo@pico.local / localdev123
  *
- * Run via: `npm run e2e` from the frontend directory.
+ * Run via: `npm run e2e` from the frontend directory with PLAYWRIGHT_BASE_URL
+ * set, e.g. `PLAYWRIGHT_BASE_URL=http://localhost:3000 npm run e2e`.
  */
 test.describe("Pico smoke test", () => {
   test("landing page loads with Hero CTA", async ({ page }) => {
