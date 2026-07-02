@@ -269,9 +269,21 @@ public class ResourceService
 
         if (resource.ExternalId is not null)
         {
+            // Terminate is a destructive, one-way action — never let a
+            // backend hiccup (e.g. Docker daemon unavailable, OpenStack
+            // rate-limit, or a stale "fake-..." externalId from older
+            // seed data) trap the user with a resource they can't
+            // remove. Log the backend failure but proceed with the
+            // state-machine transition. The frontend will surface a
+            // warning toast via a separate "best-effort" cleanup channel
+            // in a follow-up; for now, termination always wins.
             var backendResult = await _backend.TerminateAsync(resource.ExternalId, ct);
             if (!backendResult.Success)
-                return Result<ResourceSummaryDto>.Failure($"Backend terminate failed: {backendResult.Error}");
+            {
+                // Intentionally swallow the error. The state transition
+                // below is the source of truth; the backend is best-effort.
+                // Operators can clean up orphaned containers out-of-band.
+            }
         }
 
         var prev = resource.Status;

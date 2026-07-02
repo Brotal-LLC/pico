@@ -198,6 +198,35 @@ public class ResourceServiceTests
     }
 
     [Fact]
+    public async Task TerminateAsync_BackendFails_StillTransitionsToTerminated()
+    {
+        // Terminate is destructive and one-way. A backend hiccup (Docker
+        // daemon down, stale "fake-..." externalId from older seed,
+        // OpenStack rate-limit) must NOT trap the user with a resource
+        // they can't remove. State machine wins; the backend cleanup
+        // is best-effort.
+        var (repo, _, _, backend, svc) = SetupWithBackend();
+        backend.TerminateShouldFail = true;
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var resourceId = p.Value!.Id;
+        // Walk to Stopped so we have a real outgoing transition
+        repo.Resources[resourceId].TransitionTo(Domain.Enums.ResourceStatus.Stopped, "manual");
+        await repo.UpdateAsync(repo.Resources[resourceId], CancellationToken.None);
+
+        var result = await svc.TerminateAsync(resourceId, UserId, CancellationToken.None);
+
+        // The terminate must SUCCEED even though the backend returned
+        // an error — otherwise the user is stuck with a VM they can't
+        // remove (e.g. after a Docker restart wipes a container ID).
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Domain.Enums.ResourceStatus.Terminated, repo.Resources[resourceId].Status);
+        // Backend was called (and failed), proving we don't short-circuit
+        Assert.Equal(1, backend.TerminateCalls);
+    }
+
+    [Fact]
     public async Task ListUserResourcesAsync_ReturnsOnlyOwn()
     {
         var (repo, _, _, svc) = Setup();
@@ -312,4 +341,5 @@ public class ResourceServiceTests
         Assert.True(preview.IsSuccess);
         Assert.Contains(preview.Value!.Warnings, w => w.Contains("burstable", StringComparison.OrdinalIgnoreCase));
     }
-}
+
+    }

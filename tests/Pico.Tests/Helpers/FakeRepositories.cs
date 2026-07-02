@@ -83,6 +83,8 @@ public class FakeProvisioningBackend : IProvisioningBackend
     public string Mode => "fake";
     public bool ProvisionShouldFail { get; set; }
     public bool StartShouldFail { get; set; }
+    public bool StopShouldFail { get; set; }
+    public bool TerminateShouldFail { get; set; }
     public int ProvisionCalls { get; private set; }
     public int StartCalls { get; private set; }
     public int StopCalls { get; private set; }
@@ -110,12 +112,16 @@ public class FakeProvisioningBackend : IProvisioningBackend
     public Task<ProvisionResult> StopAsync(string externalId, CancellationToken ct)
     {
         StopCalls++;
+        if (StopShouldFail)
+            return Task.FromResult(ProvisionResult.Fail("Stop failed"));
         return Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
     }
 
     public Task<ProvisionResult> TerminateAsync(string externalId, CancellationToken ct)
     {
         TerminateCalls++;
+        if (TerminateShouldFail)
+            return Task.FromResult(ProvisionResult.Fail("Terminate failed"));
         return Task.FromResult(ProvisionResult.Ok(externalId, "10.0.0.42"));
     }
 
