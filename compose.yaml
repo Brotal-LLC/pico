@@ -81,13 +81,13 @@ services:
       OpenStack__Region: ${OpenStack__Region:-RegionOne}
       # Default: localhost:3000 so a fresh `docker compose up --build`
       # on a reviewer's machine works out of the box. Production overrides
-      # this via .env (e.g. https://pico.aamar.cloud). To allow both at
+      # this via .env to the actual public hostname. To allow both at
       # once, set Cors__AllowedOrigins to a comma-separated list.
       Cors__AllowedOrigins: ${Cors__AllowedOrigins:-http://localhost:3000}
       # Default: empty (cookies scoped to the exact API host). Production
       # can leave this empty too — once the cookie-Domain attribute is
       # omitted entirely, the browser scopes cookies to whichever host
-      # issued them (pico-api.aamar.cloud in prod, localhost:8080 in dev).
+      # issued them.
       Cookie__Domain: ${Cookie__Domain:-}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
@@ -123,7 +123,7 @@ services:
       args:
         # Default: localhost:8080 so a fresh `docker compose up --build`
         # on a reviewer's machine works out of the box. Production
-        # overrides this via .env (e.g. https://pico-api.aamar.cloud).
+        # overrides this via .env to the public API hostname.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     image: pico-frontend:local
     mem_limit: 2g

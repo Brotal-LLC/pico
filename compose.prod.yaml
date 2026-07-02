@@ -2,8 +2,9 @@
 # reviewer-machine stack never needs:
 #
 #   - Caddy reverse-proxy labels (the `caddy` MCP container in `infra/`
-#     watches for these and routes pico.aamar.cloud / pico-api.aamar.cloud
-#     onto the API + frontend containers).
+#     watches for these and routes <API_HOST> / <FRONTEND_HOST> onto the
+#     API + frontend containers). Both hostnames are read from .env so
+#     this overlay stays hostname-agnostic.
 #   - Caddy `flush_interval: -1` flush disables so streaming responses work
 #   - `ingress` external network so the caddy MCP container can resolve
 #     pico-api / pico-frontend by container name.
@@ -17,6 +18,9 @@
 #   COMPOSE_FILE=compose.yaml:compose.prod.yaml docker compose up -d --build
 #
 # or by setting the variable in .env (see .env.example).
+# Required env vars:
+#   API_HOST      — public hostname for the API (e.g. pico-api.example.com)
+#   FRONTEND_HOST — public hostname for the frontend (e.g. pico.example.com)
 
 name: pico
 
@@ -41,7 +45,7 @@ services:
       - pico_net
       - ingress
     labels:
-      caddy: pico-api.aamar.cloud
+      caddy: ${API_HOST:?API_HOST required when compose.prod.yaml is active}
       caddy.reverse_proxy: "{{upstreams 8080}}"
 
   frontend:
@@ -50,7 +54,7 @@ services:
       - pico_net
       - ingress
     labels:
-      caddy: pico.aamar.cloud
+      caddy: ${FRONTEND_HOST:?FRONTEND_HOST required when compose.prod.yaml is active}
       caddy.reverse_proxy: "{{upstreams 3000}}"
       caddy.reverse_proxy.flush_interval: "-1"
 
