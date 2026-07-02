@@ -1,4 +1,5 @@
 using Pico.Application.Common;
+using Pico.Application.Networking;
 using Pico.Application.Provisioning;
 using Pico.Domain;
 using Pico.Domain.Entities;
@@ -76,17 +77,20 @@ public class ResourceService
     private readonly IFlavorRepository _flavors;
     private readonly IImageRepository _images;
     private readonly IProvisioningBackend _backend;
+    private readonly NetworkService _network;
 
     public ResourceService(
         IResourceRepository resources,
         IFlavorRepository flavors,
         IImageRepository images,
-        IProvisioningBackend backend)
+        IProvisioningBackend backend,
+        NetworkService network)
     {
         _resources = resources;
         _flavors = flavors;
         _images = images;
         _backend = backend;
+        _network = network;
     }
 
     public async Task<Result<ResourceSummaryDto>> ProvisionAsync(
@@ -108,15 +112,38 @@ public class ResourceService
             ResourceEvent.Create(resource.Id, "Created", ResourceStatus.Created, ResourceStatus.Created, "Resource created"),
             ct);
 
+        // Reserve a /24 IP slot BEFORE talking to the backend so we
+        // never hand the orchestrator a slot it can't honour. If the
+        // backend subsequently fails, we release the slot below.
+        string? allocatedIp = null;
+        try
+        {
+            allocatedIp = await _network.AllocateAsync(resource.Id, ct);
+        }
+        catch (NetworkExhaustedException)
+        {
+            resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
+            resource.TransitionTo(ResourceStatus.Failed, "IP pool exhausted (254 VMs already running)");
+            await _resources.UpdateAsync(resource, ct);
+            await _resources.AddEventAsync(
+                ResourceEvent.Create(resource.Id, "ProvisionFailed", ResourceStatus.Provisioning, ResourceStatus.Failed, "IP pool exhausted"),
+                ct);
+            return Result<ResourceSummaryDto>.Failure("IP pool exhausted. Terminate another VM and try again.");
+        }
+
         // Hand off to provisioning backend with resolved flavor/image details
         var provisionReq = new ProvisionRequest(
             resource.Id, resource.Name, req.FlavorId, req.ImageId, userId.ToString(),
             Vcpus: flavor.Vcpus, RamMb: flavor.RamMb, DiskGb: flavor.DiskGb,
-            ImageName: image.Name);
+            ImageName: image.Name,
+            IpAddress: allocatedIp);
         var result = await _backend.ProvisionAsync(provisionReq, ct);
 
         if (!result.Success)
         {
+            // Release the IP slot — the backend refused, no container
+            // exists to claim it.
+            await _network.ReleaseAsync(allocatedIp, ct);
             // Transition Created → Provisioning → Failed to record the failure properly
             resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
             resource.TransitionTo(ResourceStatus.Failed, $"Backend error: {result.Error}");
@@ -127,9 +154,13 @@ public class ResourceService
             return Result<ResourceSummaryDto>.Failure($"Provisioning backend failed: {result.Error}");
         }
 
-        // Persist backend-assigned ids, then transition Created → Provisioning → Running
+        // Persist backend-assigned ids, then transition Created → Provisioning → Running.
+        // If the backend echoed our IP, use that; otherwise fall back to the
+        // slot we allocated (Docker mode should always echo; mock mode now
+        // also echoes via FakeProvisioningBackend).
+        var finalIp = !string.IsNullOrWhiteSpace(result.IpAddress) ? result.IpAddress : allocatedIp;
         resource.SetExternalId(result.ExternalId);
-        resource.SetIpAddress(result.IpAddress);
+        resource.SetIpAddress(finalIp);
         resource.TransitionTo(ResourceStatus.Provisioning, "Backend accepted");
         await _resources.UpdateAsync(resource, ct);
         await _resources.AddEventAsync(
@@ -292,6 +323,24 @@ public class ResourceService
         await _resources.AddEventAsync(
             ResourceEvent.Create(resource.Id, "StatusChange", prev, ResourceStatus.Terminated, "User terminated resource"),
             ct);
+
+        // Release the /24 IP slot back to the pool so the next
+        // AllocateAsync can hand it out. Best-effort — never block
+        // terminate on this.
+        if (!string.IsNullOrWhiteSpace(resource.IpAddress))
+        {
+            try
+            {
+                await _network.ReleaseAsync(resource.IpAddress, ct);
+            }
+            catch
+            {
+                // Swallow — the slot will be reclaimed on next
+                // NetworkService.RepopulateAsync because terminated
+                // resources are filtered out.
+            }
+        }
+
         return Result<ResourceSummaryDto>.Success(ToSummary(resource));
     }
 

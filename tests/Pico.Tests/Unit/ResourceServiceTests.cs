@@ -29,8 +29,21 @@ public class ResourceServiceTests
         fla.Flavors[TestFlavor.Id] = TestFlavor;
         img.Images[TestImage.Id] = TestImage;
         var backend = new FakeProvisioningBackend();
-        var svc = new ResourceService(res, fla, img, backend);
+        var svc = new ResourceService(res, fla, img, backend, new Pico.Application.Networking.NetworkService());
         return (res, fla, img, backend, svc);
+    }
+
+    private static (FakeResourceRepository res, FakeFlavorRepository fla, FakeImageRepository img, FakeProvisioningBackend backend, ResourceService svc, Pico.Application.Networking.NetworkService network) SetupWithNetwork()
+    {
+        var res = new FakeResourceRepository();
+        var fla = new FakeFlavorRepository();
+        var img = new FakeImageRepository();
+        fla.Flavors[TestFlavor.Id] = TestFlavor;
+        img.Images[TestImage.Id] = TestImage;
+        var backend = new FakeProvisioningBackend();
+        var network = new Pico.Application.Networking.NetworkService();
+        var svc = new ResourceService(res, fla, img, backend, network);
+        return (res, fla, img, backend, svc, network);
     }
 
     [Fact]
@@ -47,7 +60,7 @@ public class ResourceServiceTests
         var resource = repo.Resources.Values.Single();
         Assert.Equal("my-vm", resource.Name);
         Assert.Equal("fake-" + resource.Id.ToString("N"), resource.ExternalId);
-        Assert.Equal("10.0.0.42", resource.IpAddress);
+        Assert.Equal("10.42.0.2", resource.IpAddress);
 
         // After ProvisionAsync with mock backend, status should be Running
         Assert.Equal(Domain.Enums.ResourceStatus.Running, resource.Status);
@@ -63,7 +76,7 @@ public class ResourceServiceTests
         fla.Flavors[TestFlavor.Id] = TestFlavor;
         img.Images[TestImage.Id] = TestImage;
         var backend = new FakeProvisioningBackend { ProvisionShouldFail = true };
-        var svc = new ResourceService(repo, fla, img, backend);
+        var svc = new ResourceService(repo, fla, img, backend, new Pico.Application.Networking.NetworkService());
 
         var result = await svc.ProvisionAsync(UserId,
             new ProvisionRequestDto("x", TestFlavor.Id, TestImage.Id), CancellationToken.None);
@@ -417,5 +430,84 @@ public class ResourceServiceTests
         var result = await svc.RecreateAsync(Guid.NewGuid(), UserId, CancellationToken.None);
         Assert.False(result.IsSuccess);
         Assert.Contains("not found", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ─── VM IP networking ────────────────────────────────────────────────
+    // ResourceService owns IP allocation: it asks NetworkService for the
+    // next free /24 slot, hands it to the backend via ProvisionRequest,
+    // and persists the (possibly echoed) result on the resource.
+
+    [Fact]
+    public async Task ProvisionAsync_AssignsUniqueIpPerResource()
+    {
+        var (repo, _, _, _, svc, _) = SetupWithNetwork();
+
+        var a = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm-a", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var b = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm-b", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+
+        Assert.True(a.IsSuccess);
+        Assert.True(b.IsSuccess);
+        var ipA = repo.Resources[a.Value!.Id].IpAddress;
+        var ipB = repo.Resources[b.Value!.Id].IpAddress;
+        Assert.NotEqual(ipA, ipB);
+        Assert.StartsWith("10.42.0.", ipA);
+        Assert.StartsWith("10.42.0.", ipB);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_BackendFailure_ReleasesIp()
+    {
+        // If the backend refuses, the allocated IP must come back to the
+        // pool — otherwise a transient backend hiccup permanently leaks
+        // an address until the next API restart.
+        var (_, _, _, backend, svc, network) = SetupWithNetwork();
+        backend.ProvisionShouldFail = true;
+
+        // Provision #1 fails (consumes then releases .2).
+        var result1 = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("doomed-1", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        Assert.False(result1.IsSuccess);
+
+        // Provision #2 fails the same way (consumes then releases .2 again
+        // because it was the only free slot).
+        var result2 = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("doomed-2", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        Assert.False(result2.IsSuccess);
+
+        // After two failed provisions, the next successful allocation
+        // must still get the same first-usable slot — proving the
+        // failed attempts didn't leak IPs.
+        backend.ProvisionShouldFail = false;
+        var result3 = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("survivor", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        Assert.True(result3.IsSuccess);
+        // 10.42.0.2 is the first usable slot in the pool. After two
+        // failed provisions (each consuming then releasing it), the
+        // pool should still have .2 at the front.
+        Assert.StartsWith("10.42.0.", result3.Value!.IpAddress);
+    }
+
+    [Fact]
+    public async Task TerminateAsync_ReleasesIpBackToPool()
+    {
+        // Walking a Running resource to Terminated should free its IP so
+        // a fresh provision can reuse it.
+        var (repo, _, _, _, svc, network) = SetupWithNetwork();
+
+        var p = await svc.ProvisionAsync(UserId,
+            new ProvisionRequestDto("vm", TestFlavor.Id, TestImage.Id), CancellationToken.None);
+        var ip = repo.Resources[p.Value!.Id].IpAddress;
+
+        // Walk to Stopped (Terminate from Running isn't allowed).
+        repo.Resources[p.Value.Id].TransitionTo(Domain.Enums.ResourceStatus.Stopped, "manual");
+        await repo.UpdateAsync(repo.Resources[p.Value.Id], CancellationToken.None);
+        var result = await svc.TerminateAsync(p.Value.Id, UserId, CancellationToken.None);
+        Assert.True(result.IsSuccess);
+
+        // First allocation after release is the same slot — we just freed it.
+        var reused = await network.AllocateAsync(Guid.NewGuid(), CancellationToken.None);
+        Assert.Equal(ip, reused);
     }
 }

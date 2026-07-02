@@ -1,9 +1,11 @@
 using Pico.Application.Billing;
 using Pico.Application.Catalog;
 using Pico.Application.Common;
+using Pico.Application.Networking;
 using Pico.Application.Provisioning;
 using Pico.Application.Resources;
 using Pico.Infrastructure;
+using Pico.Infrastructure.Networking;
 using Pico.Infrastructure.Persistence;
 using Pico.Infrastructure.Provisioning;
 using Pico.Infrastructure.Repositories;
@@ -147,6 +149,13 @@ builder.Services.AddScoped<CatalogService>();
 builder.Services.AddScoped<ResourceService>();
 builder.Services.AddScoped<InvoiceGenerator>();
 builder.Services.AddScoped<InvoiceGenerationService>();
+
+// ─── VM IP networking ───────────────────────────────────────────────────
+// NetworkService holds the in-memory /24 IP allocator shared across
+// all request scopes; it MUST be a singleton. NetworkBootstrapper is
+// an IHostedService that hydrates it from the repository at boot.
+builder.Services.AddSingleton<NetworkService>();
+builder.Services.AddHostedService<NetworkBootstrapper>();
 
 // ─── Seed + auto-migrate ────────────────────────────────────────────────
 builder.Services.AddScoped<DataSeeder>();

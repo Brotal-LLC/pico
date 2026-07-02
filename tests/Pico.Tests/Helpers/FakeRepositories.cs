@@ -97,8 +97,12 @@ public class FakeProvisioningBackend : IProvisioningBackend
         ProvisionCalls++;
         if (ProvisionShouldFail)
             return Task.FromResult(ProvisionResult.Fail("Backend declined"));
+        // Production backends honor the IP the orchestrator allocated from
+        // the /24 pool (10.42.0.0/24). Tests that don't pre-populate
+        // NetworkService fall back to the legacy stub IP.
+        var ip = request.IpAddress ?? "10.0.0.42";
         return Task.FromResult(ProvisionResult.Ok(
-            ProvisionedExternalIdFormat(request.ResourceId), "10.0.0.42"));
+            ProvisionedExternalIdFormat(request.ResourceId), ip));
     }
 
     public Task<ProvisionResult> StartAsync(string externalId, CancellationToken ct)

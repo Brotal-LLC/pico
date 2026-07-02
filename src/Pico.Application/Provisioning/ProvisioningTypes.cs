@@ -12,7 +12,8 @@ public record ProvisionRequest(
     int Vcpus = 1,
     int RamMb = 512,
     int DiskGb = 10,
-    string ImageName = "alpine:3.19"
+    string ImageName = "alpine:3.19",
+    string? IpAddress = null
 );
 
 /// <summary>Result of a provisioning backend operation.</summary>

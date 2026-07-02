@@ -125,7 +125,7 @@ public class RepositoryIntegrationTests : IAsyncLifetime
         await imageRepo.AddAsync(image, CancellationToken.None);
 
         var backend = new FakeProvisioningBackend();
-        var service = new Pico.Application.Resources.ResourceService(resRepo, flavorRepo, imageRepo, backend);
+        var service = new Pico.Application.Resources.ResourceService(resRepo, flavorRepo, imageRepo, backend, new Pico.Application.Networking.NetworkService());
 
         // Provision
         var provisionResult = await service.ProvisionAsync(user.Id,

@@ -31,10 +31,14 @@ public class DockerProvisioningBackend : IProvisioningBackend
             // Map Pico image name to Docker image
             var dockerImage = MapImageName(request.ImageName);
 
+            var containerName = $"pico-{request.Name}-{Guid.NewGuid():N}";
+            if (containerName.Length > 64)
+                containerName = containerName[..64];
+
             var createParams = new CreateContainerParameters
             {
                 Image = dockerImage,
-                Name = $"pico-{request.Name}-{Guid.NewGuid():N}"[..Math.Min(64, $"pico-{request.Name}-{Guid.NewGuid():N}".Length)],
+                Name = containerName,
                 Cmd = new List<string> { "sleep", "infinity" },
                 HostConfig = new HostConfig
                 {
@@ -44,11 +48,34 @@ public class DockerProvisioningBackend : IProvisioningBackend
                 },
             };
 
+            // If the orchestrator pre-allocated an IP from the /24 pool,
+            // attach the container to pico-vm-net with that exact IP.
+            // This is the new happy path; without it, we fall back to
+            // Docker's IPAM (which returns whatever the bridge picked).
+            if (!string.IsNullOrWhiteSpace(request.IpAddress))
+            {
+                await EnsureNetworkAsync(VM_NETWORK, ct);
+                createParams.NetworkingConfig = new NetworkingConfig
+                {
+                    EndpointsConfig = new Dictionary<string, EndpointSettings>
+                    {
+                        [VM_NETWORK] = new EndpointSettings
+                        {
+                            IPAMConfig = new EndpointIPAMConfig { IPv4Address = request.IpAddress }
+                        }
+                    }
+                };
+            }
+
             var response = await _docker.Containers.CreateContainerAsync(createParams, ct);
             await _docker.Containers.StartContainerAsync(response.ID, new ContainerStartParameters(), ct);
 
             var inspect = await _docker.Containers.InspectContainerAsync(response.ID, ct);
-            var ip = inspect.NetworkSettings.IPAddress ?? "127.0.0.1";
+            // The DockerDotNet deprecated NetworkSettings.IPAddress field
+            // races against attach completion and frequently returns "".
+            // Prefer the per-endpoint IP for pico-vm-net, fall back to the
+            // legacy single-network field, then to the orchestrator's IP.
+            var ip = ResolveAssignedIp(inspect, request.IpAddress);
 
             return ProvisionResult.Ok(response.ID, ip);
         }
@@ -57,6 +84,64 @@ public class DockerProvisioningBackend : IProvisioningBackend
             _logger.LogError(ex, "Docker provisioning failed");
             return ProvisionResult.Fail(ex.Message);
         }
+    }
+
+    /// <summary>The Docker bridge Pico assigns VM containers to.</summary>
+    public const string VM_NETWORK = "pico-vm-net";
+
+    /// <summary>
+    /// Idempotently create the pico-vm-net bridge with a deterministic
+    /// /24 subnet. Called lazily by ProvisionAsync when an orchestrator-
+    /// allocated IP needs to be assigned to a container.
+    /// </summary>
+    private async Task EnsureNetworkAsync(string name, CancellationToken ct)
+    {
+        var existing = await _docker.Networks.ListNetworksAsync(
+            new NetworksListParameters
+            {
+                Filters = new Dictionary<string, IDictionary<string, bool>>
+                {
+                    ["name"] = new Dictionary<string, bool> { [name] = true }
+                }
+            }, ct);
+        if (existing.Any(n => string.Equals(n.Name, name, StringComparison.Ordinal))) return;
+
+        await _docker.Networks.CreateNetworkAsync(new NetworksCreateParameters
+        {
+            Name = name,
+            Driver = "bridge",
+            IPAM = new IPAM
+            {
+                Config = new List<IPAMConfig>
+                {
+                    new() { Subnet = "10.42.0.0/24", Gateway = "10.42.0.1" }
+                }
+            }
+        }, ct);
+        _logger.LogInformation("Created Docker network {Network} with subnet 10.42.0.0/24", name);
+    }
+
+    /// <summary>
+    /// Resolve the container's assigned IP, preferring the per-endpoint
+    /// view of pico-vm-net (which is current), then the legacy single-
+    /// network field, then the orchestrator-supplied fallback.
+    /// </summary>
+    private static string ResolveAssignedIp(ContainerInspectResponse inspect, string? fallback)
+    {
+        if (inspect.NetworkSettings?.Networks is { } networks)
+        {
+            if (networks.TryGetValue(VM_NETWORK, out var vmNet) && !string.IsNullOrWhiteSpace(vmNet.IPAddress))
+                return vmNet.IPAddress;
+            // First non-empty entry, ordered by name for determinism.
+            foreach (var kv in networks.OrderBy(kv => kv.Key))
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Value?.IPAddress))
+                    return kv.Value.IPAddress;
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(inspect.NetworkSettings?.IPAddress))
+            return inspect.NetworkSettings.IPAddress;
+        return fallback ?? "127.0.0.1";
     }
 
     public async Task<ProvisionResult> StartAsync(string externalId, CancellationToken ct)
