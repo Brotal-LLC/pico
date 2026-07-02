@@ -107,24 +107,103 @@ public class DataSeeder
             await db.SaveChangesAsync(ct);
         }
 
-        // ─── Historical invoice so reviewers see real billing data ──────
+        // ─── Historical invoices so reviewers see a real billing history ─
+        // Three invoices give the dashboard something meaningful to render:
+        //   • Two paid invoices (60d ago, 30d ago) — show historical billing
+        //   • One current pending invoice with multiple line items — exercises
+        //     the detail view, the "Pay now" CTA, and the per-flavor breakdown.
         if (!invoiceAlready)
         {
-            var lastMonth = DateTimeOffset.UtcNow.AddDays(-30);
-            var lastWeek  = DateTimeOffset.UtcNow.AddDays(-7);
-            var hours     = 168m; // a week
-            var line = new InvoiceLine(
-                invoiceId: Guid.Empty, // EF Core fixup via Invoice.Lines navigation
-                resourceId: demoResource.Id,
-                flavorId: picoSmall.Id,
-                hours: hours,
-                rate: picoSmall.PricePerHour,
-                amount: decimal.Round(picoSmall.PricePerHour * hours, 2, MidpointRounding.AwayFromZero),
+            var picoNano   = flavors.First(f => f.Name == "pico.nano");
+            var picoMicro  = flavors.First(f => f.Name == "pico.micro");
+            var picoMedium = flavors.First(f => f.Name == "pico.medium");
+            var now = DateTimeOffset.UtcNow;
+
+            // 60 days ago: paid invoice — single line, pico.medium for a full month
+            SeedInvoice(
+                db,
+                demoUser.Id,
+                demoResource.Id,
+                picoMedium.Id,
+                picoMedium.PricePerHour,
+                hours: 720m, // 30d × 24h
+                periodStart: now.AddDays(-90),
+                periodEnd:   now.AddDays(-60),
+                paidAt:      now.AddDays(-59),
+                description: $"{demoResource.Name} ({picoMedium.Name})");
+
+            // 30 days ago: paid invoice — single line, pico.small for a week
+            SeedInvoice(
+                db,
+                demoUser.Id,
+                demoResource.Id,
+                picoSmall.Id,
+                picoSmall.PricePerHour,
+                hours: 168m, // a week
+                periodStart: now.AddDays(-37),
+                periodEnd:   now.AddDays(-30),
+                paidAt:      now.AddDays(-29),
                 description: $"{demoResource.Name} ({picoSmall.Name})");
-            var historical = Invoice.Create(demoUser.Id, lastMonth, lastWeek, new[] { line });
-            historical.MarkPaid(lastWeek.AddDays(1));
-            db.Invoices.Add(historical);
+
+            // Current period: pending invoice — multiple lines spanning different flavors.
+            // Built by hand here (not via the helper) because it's the one with line variety.
+            var currentStart = now.AddDays(-7);
+            var currentEnd   = now.AddDays(23); // closes in 23 days
+            var currentLines = new[]
+            {
+                BuildLine(demoResource.Id, picoSmall.Id, 96m,  picoSmall.PricePerHour,  $"{demoResource.Name} ({picoSmall.Name})"),
+                BuildLine(demoResource.Id, picoNano.Id,  40m,  picoNano.PricePerHour,   $"{demoResource.Name} ({picoNano.Name})"),
+                BuildLine(demoResource.Id, picoMicro.Id, 24m,  picoMicro.PricePerHour,  $"{demoResource.Name} ({picoMicro.Name})"),
+            };
+            var current = Invoice.Create(demoUser.Id, currentStart, currentEnd, currentLines);
+            // Pending — no MarkPaid call
+            db.Invoices.Add(current);
+
             await db.SaveChangesAsync(ct);
         }
+    }
+
+    /// <summary>
+    /// Helper: build an InvoiceLine for the seeder. Uses the internal ctor so the
+    /// amount can be pre-computed and the invoiceId left at Guid.Empty (EF fixup).
+    /// </summary>
+    private static InvoiceLine BuildLine(
+        Guid resourceId,
+        Guid flavorId,
+        decimal hours,
+        decimal rate,
+        string description)
+    {
+        var amount = decimal.Round(hours * rate, 2, MidpointRounding.AwayFromZero);
+        return new InvoiceLine(
+            invoiceId: Guid.Empty, // EF Core fixup via Invoice.Lines navigation
+            resourceId: resourceId,
+            flavorId: flavorId,
+            hours: hours,
+            rate: rate,
+            amount: amount,
+            description: description);
+    }
+
+    /// <summary>
+    /// Helper: persist a single-line invoice and immediately mark it paid.
+    /// Used for historical paid invoices in the seed.
+    /// </summary>
+    private static void SeedInvoice(
+        PicoDbContext db,
+        Guid userId,
+        Guid resourceId,
+        Guid flavorId,
+        decimal rate,
+        decimal hours,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        DateTimeOffset paidAt,
+        string description)
+    {
+        var line = BuildLine(resourceId, flavorId, hours, rate, description);
+        var invoice = Invoice.Create(userId, periodStart, periodEnd, new[] { line });
+        invoice.MarkPaid(paidAt);
+        db.Invoices.Add(invoice);
     }
 }
