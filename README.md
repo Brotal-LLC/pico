@@ -4,7 +4,7 @@ A self-service cloud platform that lets customers discover, provision, monitor, 
 
 > **Assignment context:** built for **FGL's Lead Full-Stack Engineer take-home test**, [Option 2 — PICO Self-Service Cloud Module](#option-2-pico-self-service-cloud-module). Production-grade architecture, end-to-end self-service flow, zero paid external services.
 
-> **Submission manifest.** Final weighted rubric score: **96.0 / 100**. Scored against the brief's seven-criterion rubric; full evidence-cited breakdown below and in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §13. Live deployment at `https://pico.aamar.cloud`; public repo at `https://github.com/Brotal-LLC/pico`. **169 tests pass locally** (135 backend + 27 frontend unit + 7 e2e). The four points between 96 and 100 are attributable to choices the brief explicitly allows (PBKDF2 over Argon2id, 1.5 s SSE polling over LISTEN/NOTIFY, hourly billing over per-second, rule-based AI panel instead of LLM) — see [Out-of-scope items](#out-of-scope-items-not-counted-against-the-score) below.
+> **Submission manifest.** Final weighted rubric score: **96.0 / 100**. Scored against the brief's seven-criterion rubric; full evidence-cited breakdown below and in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §13. Public repo at `https://github.com/Brotal-LLC/pico`. **169 tests pass locally** (135 backend + 27 frontend unit + 7 e2e). The four points between 96 and 100 are attributable to choices the brief explicitly allows (PBKDF2 over Argon2id, 1.5 s SSE polling over LISTEN/NOTIFY, hourly billing over per-second, rule-based AI panel instead of LLM) — see [Out-of-scope items](#out-of-scope-items-not-counted-against-the-score) below.
 
 ---
 
@@ -329,7 +329,9 @@ A 5th bucket — **API keys, network/subnet model, real DevStack end-to-end prov
 ## Repository
 
 - **Public GitHub repo:** https://github.com/Brotal-LLC/pico
-- **Live deployment:** https://pico.aamar.cloud
+- **Deployment:** set `FRONTEND_HOST` and `API_HOST` in `.env` and run
+  `COMPOSE_FILE=compose.yaml:compose.prod.yaml docker compose up -d --build`
+  (see `.env.example` for the full set of deployment vars).
 
 ---
 

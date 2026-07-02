@@ -3,10 +3,10 @@
 > **Audit date**: 2026-07-01 (UTC, post-completion)
 > **Auditor**: Pixu (with 6 parallel subagents in cycle 1)
 > **Subject**: `/home/shakib/repos/pico` @ `4271582` (HEAD of `main`)
-> **Live deployment**: `https://pico.aamar.cloud`, `https://pico-api.aamar.cloud`
+> **Deployment**: configured via `FRONTEND_HOST` / `API_HOST` env vars (see `.env.example`)
 > **Public repo**: `https://github.com/Brotal-LLC/pico`
 
-This is the **final, verified** report after two cycles of audit-over-delivery. Every gap listed in `cycle 1 §5 Gap #1–14` has been addressed, and every fix is **tested** and **live** on `https://pico.aamar.cloud`. Numbers and scores below are honest re-scores against the actual shipped state, not aspirational scores.
+This is the **final, verified** report after two cycles of audit-over-delivery. Every gap listed in `cycle 1 §5 Gap #1–14` has been addressed, and every fix is **tested** and **live** on the configured deployment. Numbers and scores below are honest re-scores against the actual shipped state, not aspirational scores.
 
 ---
 
@@ -78,7 +78,7 @@ brief says is optional (real DevStack/OpenStack cluster).
 | S2 | No rate limiting on login/signup | Medium | ✅ closed | `AddRateLimiter("auth-ip")` + 2× `RequireRateLimiting` |
 | S3 | OpenAPI exposed in production | Medium | ✅ closed | compose: `${ASPNETCORE_ENVIRONMENT:-Production}` |
 | S4 | Cookie not 7-day persistent | Low | ⚠ unchanged | Sliding expiration covers functional "7-day"; see `AI_USAGE.md` and README §Security notes |
-| S5 | CORS default `localhost:3000` | Low | ⚠ unchanged | Doc-only; reviewers run against `pico.aamar.cloud` via compose |
+| S5 | CORS default `localhost:3000` | Low | ⚠ unchanged | Doc-only; reviewers run against `<your-frontend-host>` via compose |
 | S6 | Missing `/vms` route | Low | ℹ️ N/A | Marketing copy now in README's `60-second tour` references correct paths |
 | S7 | Anonymous 401 noise | Low | ✅ closed | `AuthProvider.tsx` `PUBLIC_ROUTES` + `useRef` first-mount skip |
 | S8 | `favicon.ico` 404 | Low | ✅ closed | `frontend/src/app/icon.svg` |
@@ -122,10 +122,10 @@ pico-postgres    Up ~12 minutes   (healthy)
 ```
 
 ```
-$ curl -sSI https://pico-api.aamar.cloud/api/health  | head -7
+$ curl -sSI https://<your-api-host>/api/health  | head -7
 HTTP/2 200
 strict-transport-security: max-age=63072000; includeSubDomains; preload
-content-security-policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://pico-api.aamar.cloud; ...
+content-security-policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://<your-api-host>; ...
 x-frame-options: DENY
 x-content-type-options: nosniff
 referrer-policy: strict-origin-when-cross-origin
@@ -133,7 +133,7 @@ permissions-policy: camera=(), microphone=(), geolocation=()
 ```
 
 ```
-$ curl -sSI https://pico.aamar.cloud/  | head -7
+$ curl -sSI https://<your-frontend-host>/  | head -7
 HTTP/2 200
 strict-transport-security: max-age=63072000; includeSubDomains; preload
 content-security-policy: default-src 'self'; img-src 'self' data:; ...
@@ -144,7 +144,7 @@ permissions-policy: camera=(), microphone=(), geolocation=()
 ```
 
 ```
-$ curl -sS https://pico-api.aamar.cloud/api/admin/metrics  | jq '.fleetUptimePercent, .sla'
+$ curl -sS https://<your-api-host>/api/admin/metrics  | jq '.fleetUptimePercent, .sla'
 99.97
 {"running":1,"stopped":0,"provisioning":0,"failed":0,"termininated":0,
  "totalUptimeHours":2050,"totalPossibleUptimeHours":2051,"uptimePercent":99.95}
@@ -170,14 +170,14 @@ dotnet test                                                 # 135 passing
 (cd frontend && npx playwright install chromium && npm run e2e)  # 7 e2e specs
 
 # Live probes
-curl -sSI https://pico.aamar.cloud | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
-curl -sSI https://pico-api.aamar.cloud/api/health | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
-curl -sS https://pico-api.aamar.cloud/api/admin/metrics | jq '.fleetUptimePercent, .sla'
-curl -sS -X POST https://pico-api.aamar.cloud/api/auth/login \
+curl -sSI https://<your-frontend-host> | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
+curl -sSI https://<your-api-host>/api/health | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
+curl -sS https://<your-api-host>/api/admin/metrics | jq '.fleetUptimePercent, .sla'
+curl -sS -X POST https://<your-api-host>/api/auth/login \
   -H 'content-type: application/json' \
   -d '{"email":"demo@pico.local","password":"pico-demo-password"}' \
   -c /tmp/cookies.txt
-curl -sS https://pico-api.aamar.cloud/api/resources/preview \
+curl -sS https://<your-api-host>/api/resources/preview \
   -X POST -H 'content-type: application/json' \
   -d '{"name":"preview","flavorId":"<flavorId>","imageId":"<imageId>"}'
 gh repo view Brotal-LLC/pico --json visibility     # → PUBLIC

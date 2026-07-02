@@ -220,17 +220,17 @@ The same evidence is reproducible against the live deployment:
 
 ```bash
 # Security headers — must return all six on every response
-curl -sSI https://pico.aamar.cloud | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
-curl -sSI https://pico-api.aamar.cloud/api/health | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
+curl -sSI https://<your-frontend-host> | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
+curl -sSI https://<your-api-host>/api/health | grep -iE 'strict-transport|content-security|x-frame|x-content|referrer|permissions'
 
 # Public catalog (no auth required)
-curl -sS https://pico.aamar.cloud/catalog | grep -iE 'package|vcpu|ram'
+curl -sS https://<your-frontend-host>/catalog | grep -iE 'package|vcpu|ram'
 
 # SLA + fleet uptime from admin metrics
-curl -sS https://pico-api.aamar.cloud/api/admin/metrics | jq '.fleetUptimePercent, .sla'
+curl -sS https://<your-api-host>/api/admin/metrics | jq '.fleetUptimePercent, .sla'
 
 # Plan preview (Terraform-like) — returns cost + warnings, no resource created
-curl -sS -X POST https://pico-api.aamar.cloud/api/resources/preview \
+curl -sS -X POST https://<your-api-host>/api/resources/preview \
   -H 'content-type: application/json' \
   -d '{"name":"preview","flavorId":"<flavorId>","imageId":"<imageId>"}'
 
