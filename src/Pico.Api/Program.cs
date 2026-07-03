@@ -156,6 +156,11 @@ builder.Services.AddScoped<InvoiceGenerationService>();
 // an IHostedService that hydrates it from the repository at boot.
 builder.Services.AddSingleton<NetworkService>();
 builder.Services.AddHostedService<NetworkBootstrapper>();
+// DockerNetworkReconciler runs after NetworkBootstrapper and scans the
+// live pico-vm-net Docker bridge for IPs that are in use by containers
+// but not tracked by the DB (orphaned containers, crashed provisions).
+// Only runs when PROVISIONING_MODE=docker; no-op otherwise.
+builder.Services.AddHostedService<DockerNetworkReconciler>();
 
 // ─── Seed + auto-migrate ────────────────────────────────────────────────
 builder.Services.AddScoped<DataSeeder>();

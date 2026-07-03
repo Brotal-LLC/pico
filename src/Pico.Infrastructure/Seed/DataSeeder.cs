@@ -282,7 +282,7 @@ public class DataSeeder
             var backendResult = await backend.ProvisionAsync(
                 new ProvisionRequest(
                     resource.Id, resource.Name, flavorId, imageId, demoUserId.ToString(),
-                    Vcpus: 0, RamMb: 0, DiskGb: 0, ImageName: ""),
+                    Vcpus: 0, RamMb: 0, DiskGb: 0, ImageName: "ubuntu-22"),
                 ct);
             // Even if the backend hiccups (e.g. Docker daemon unavailable
             // mid-deploy), we still want the seed to complete and the
@@ -411,7 +411,7 @@ public class DataSeeder
         var backendResult = await backend.ProvisionAsync(
             new ProvisionRequest(
                 legacy.Id, legacy.Name, legacy.FlavorId, legacy.ImageId,
-                demoUserId.ToString(), Vcpus: 0, RamMb: 0, DiskGb: 0, ImageName: ""),
+                demoUserId.ToString(), Vcpus: 0, RamMb: 0, DiskGb: 0, ImageName: "ubuntu-22"),
             ct);
         if (backendResult.Success)
         {

@@ -115,36 +115,106 @@ public class ResourceService
         // Reserve a /24 IP slot BEFORE talking to the backend so we
         // never hand the orchestrator a slot it can't honour. If the
         // backend subsequently fails, we release the slot below.
+        //
+        // Docker can still reject an IP with "Address already in use" if:
+        //   • An orphaned container holds the IP but wasn't tracked by
+        //     the reconciler (e.g. the API started before the container
+        //     was created, or the reconciler failed).
+        //   • A race between two concurrent provisions picked the same
+        //     slot (the lock prevents this, but defense-in-depth).
+        // We retry up to 3 times with a fresh IP on each attempt.
+        const int maxAttempts = 3;
+        var provisionAttempts = 0;
         string? allocatedIp = null;
-        try
-        {
-            allocatedIp = await _network.AllocateAsync(resource.Id, ct);
-        }
-        catch (NetworkExhaustedException)
-        {
-            resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
-            resource.TransitionTo(ResourceStatus.Failed, "IP pool exhausted (254 VMs already running)");
-            await _resources.UpdateAsync(resource, ct);
-            await _resources.AddEventAsync(
-                ResourceEvent.Create(resource.Id, "ProvisionFailed", ResourceStatus.Provisioning, ResourceStatus.Failed, "IP pool exhausted"),
-                ct);
-            return Result<ResourceSummaryDto>.Failure("IP pool exhausted. Terminate another VM and try again.");
-        }
 
-        // Hand off to provisioning backend with resolved flavor/image details
-        var provisionReq = new ProvisionRequest(
-            resource.Id, resource.Name, req.FlavorId, req.ImageId, userId.ToString(),
-            Vcpus: flavor.Vcpus, RamMb: flavor.RamMb, DiskGb: flavor.DiskGb,
-            ImageName: image.Name,
-            IpAddress: allocatedIp);
-        var result = await _backend.ProvisionAsync(provisionReq, ct);
-
-        if (!result.Success)
+        while (provisionAttempts < maxAttempts)
         {
-            // Release the IP slot — the backend refused, no container
-            // exists to claim it.
+            provisionAttempts++;
+
+            try
+            {
+                allocatedIp = await _network.AllocateAsync(resource.Id, ct);
+            }
+            catch (NetworkExhaustedException)
+            {
+                // No more IPs — only fail if we haven't already tried.
+                if (provisionAttempts == 1)
+                {
+                    resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
+                    resource.TransitionTo(ResourceStatus.Failed, "IP pool exhausted (254 VMs already running)");
+                    await _resources.UpdateAsync(resource, ct);
+                    await _resources.AddEventAsync(
+                        ResourceEvent.Create(resource.Id, "ProvisionFailed", ResourceStatus.Provisioning, ResourceStatus.Failed, "IP pool exhausted"),
+                        ct);
+                    return Result<ResourceSummaryDto>.Failure("IP pool exhausted. Terminate another VM and try again.");
+                }
+                // We released an IP on a previous attempt but the pool
+                // is now exhausted (shouldn't happen with 253 slots,
+                // but handle it gracefully).
+                break;
+            }
+
+            // Hand off to provisioning backend with resolved flavor/image details
+            var provisionReq = new ProvisionRequest(
+                resource.Id, resource.Name, req.FlavorId, req.ImageId, userId.ToString(),
+                Vcpus: flavor.Vcpus, RamMb: flavor.RamMb, DiskGb: flavor.DiskGb,
+                ImageName: image.Name,
+                IpAddress: allocatedIp);
+            var result = await _backend.ProvisionAsync(provisionReq, ct);
+
+            if (result.Success)
+            {
+                // Persist backend-assigned ids, then transition Created → Provisioning → Running.
+                var finalIp = !string.IsNullOrWhiteSpace(result.IpAddress) ? result.IpAddress : allocatedIp;
+                resource.SetExternalId(result.ExternalId);
+                resource.SetIpAddress(finalIp);
+                resource.TransitionTo(ResourceStatus.Provisioning, "Backend accepted");
+                await _resources.UpdateAsync(resource, ct);
+                await _resources.AddEventAsync(
+                    ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Created, ResourceStatus.Provisioning, "Backend provisioning started"),
+                    ct);
+
+                // For synchronous backends (mock/docker/fake), provisioning completes immediately
+                if (_backend.Mode != "openstack")
+                {
+                    resource.TransitionTo(ResourceStatus.Running, "Provisioning complete");
+                    await _resources.UpdateAsync(resource, ct);
+                    await _resources.AddEventAsync(
+                        ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Provisioning, ResourceStatus.Running, "Resource is now running"),
+                        ct);
+                }
+
+                return Result<ResourceSummaryDto>.Success(ToSummary(resource));
+            }
+
+            // Backend failed. If it's an IP conflict and we have retries
+            // left, release the IP and try again with a fresh one.
+            //
+            // Key insight: ReleaseAsync puts the IP back into the _free
+            // pool, so the next AllocateAsync would immediately re-pick
+            // it (it's the minimum slot). Instead, we release the IP
+            // and then block it with the orphan sentinel so the
+            // allocator skips it on the next attempt. The sentinel
+            // is a synthetic Guid that's never a real resource.
             await _network.ReleaseAsync(allocatedIp, ct);
-            // Transition Created → Provisioning → Failed to record the failure properly
+            var orphanSentinel = Guid.Parse("00000000-0000-0000-0000-000000000001");
+            await _network.ClaimExternalIpAsync(allocatedIp, orphanSentinel, ct);
+            allocatedIp = null;
+
+            var isIpConflict = result.Error?.Contains("Address already in use", StringComparison.OrdinalIgnoreCase) == true
+                || result.Error?.Contains("Forbidden", StringComparison.OrdinalIgnoreCase) == true;
+
+            if (isIpConflict && provisionAttempts < maxAttempts)
+            {
+                // Record the failed attempt as an event for diagnostics
+                await _resources.AddEventAsync(
+                    ResourceEvent.Create(resource.Id, "ProvisionRetry", ResourceStatus.Created, ResourceStatus.Created,
+                        $"IP conflict on attempt {provisionAttempts}, retrying with new IP"),
+                    ct);
+                continue; // retry with a new IP
+            }
+
+            // Non-retryable error, or out of retries.
             resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
             resource.TransitionTo(ResourceStatus.Failed, $"Backend error: {result.Error}");
             await _resources.UpdateAsync(resource, ct);
@@ -154,30 +224,15 @@ public class ResourceService
             return Result<ResourceSummaryDto>.Failure($"Provisioning backend failed: {result.Error}");
         }
 
-        // Persist backend-assigned ids, then transition Created → Provisioning → Running.
-        // If the backend echoed our IP, use that; otherwise fall back to the
-        // slot we allocated (Docker mode should always echo; mock mode now
-        // also echoes via FakeProvisioningBackend).
-        var finalIp = !string.IsNullOrWhiteSpace(result.IpAddress) ? result.IpAddress : allocatedIp;
-        resource.SetExternalId(result.ExternalId);
-        resource.SetIpAddress(finalIp);
-        resource.TransitionTo(ResourceStatus.Provisioning, "Backend accepted");
+        // Shouldn't reach here, but if we do (exhausted retries with no
+        // explicit error), return a generic failure.
+        resource.TransitionTo(ResourceStatus.Provisioning, "Backend called");
+        resource.TransitionTo(ResourceStatus.Failed, "Provisioning failed after retries");
         await _resources.UpdateAsync(resource, ct);
         await _resources.AddEventAsync(
-            ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Created, ResourceStatus.Provisioning, "Backend provisioning started"),
+            ResourceEvent.Create(resource.Id, "ProvisionFailed", ResourceStatus.Provisioning, ResourceStatus.Failed, "Exhausted retries"),
             ct);
-
-        // For synchronous backends (mock/docker/fake), provisioning completes immediately
-        if (_backend.Mode != "openstack")
-        {
-            resource.TransitionTo(ResourceStatus.Running, "Provisioning complete");
-            await _resources.UpdateAsync(resource, ct);
-            await _resources.AddEventAsync(
-                ResourceEvent.Create(resource.Id, "StatusChange", ResourceStatus.Provisioning, ResourceStatus.Running, "Resource is now running"),
-                ct);
-        }
-
-        return Result<ResourceSummaryDto>.Success(ToSummary(resource));
+        return Result<ResourceSummaryDto>.Failure("Provisioning failed after retries. Please try again.");
     }
 
     /// <summary>

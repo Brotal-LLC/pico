@@ -402,6 +402,7 @@ public class DockerProvisioningBackend : IProvisioningBackend
         "ubuntu-24" => "ubuntu:24.04",
         "debian-12" => "debian:12",
         "alma-9" => "almalinux:9",
-        _ => "alpine:3.19",  // safe default
+        "" or null => "ubuntu:22.04",  // seeder passes empty string
+        _ => "ubuntu:22.04",  // safe default (alpine:3.19 not always pulled)
     };
 }

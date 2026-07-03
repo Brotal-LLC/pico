@@ -91,6 +91,66 @@ public class NetworkService
     }
 
     /// <summary>
+    /// Mark an IP as in-use by a given resource, even if the allocator
+    /// didn't hand it out. Used by the Docker network reconciler at
+    /// startup to claim IPs that live Docker containers are already
+    /// using but that the DB doesn't know about (orphaned containers
+    /// from a crashed provision, manual docker run, etc.).
+    ///
+    /// Returns true if the IP was successfully claimed (either it was
+    /// already owned by this resource, or it was free). Returns false
+    /// if another resource already owns it — the caller should decide
+    /// whether to force-claim or skip.
+    /// </summary>
+    public Task<bool> ClaimExternalIpAsync(string ip, Guid resourceId, CancellationToken ct)
+    {
+        if (!IPAddress.TryParse(ip, out var addr)) return Task.FromResult(false);
+        var bytes = addr.GetAddressBytes();
+        if (bytes.Length != 4 || bytes[0] != 10 || bytes[1] != 42 || bytes[2] != 0)
+            return Task.FromResult(false);
+        var slot = bytes[3];
+        if (slot < FirstUsable || slot > LastUsable) return Task.FromResult(false);
+
+        lock (_gate)
+        {
+            // Already owned by this resource — no-op.
+            if (_owner.TryGetValue(slot, out var existing) && existing == resourceId)
+                return Task.FromResult(true);
+            // Owned by a different resource — conflict.
+            if (_owner.ContainsKey(slot))
+                return Task.FromResult(false);
+            // Claim it.
+            _owner[slot] = resourceId;
+            _free.Remove(slot);
+            return Task.FromResult(true);
+        }
+    }
+
+    /// <summary>
+    /// Force-claim an IP, evicting any previous owner. Used by the
+    /// Docker network reconciler when it finds a live container using
+    /// an IP that belongs to a Terminated/Failed DB resource (stale
+    /// allocation). The evicted owner's slot is simply reassigned —
+    /// the old resource is Terminated and won't need it.
+    /// </summary>
+    public Task ForceClaimExternalIpAsync(string ip, Guid resourceId, CancellationToken ct)
+    {
+        if (!IPAddress.TryParse(ip, out var addr)) return Task.CompletedTask;
+        var bytes = addr.GetAddressBytes();
+        if (bytes.Length != 4 || bytes[0] != 10 || bytes[1] != 42 || bytes[2] != 0)
+            return Task.CompletedTask;
+        var slot = bytes[3];
+        if (slot < FirstUsable || slot > LastUsable) return Task.CompletedTask;
+
+        lock (_gate)
+        {
+            _owner[slot] = resourceId;
+            _free.Remove(slot);
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Reclaim IPs from non-Terminated resources so a fresh API process
     /// doesn't reassign them. Idempotent — safe to call multiple times.
     /// </summary>
