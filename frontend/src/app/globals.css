@@ -101,8 +101,13 @@
  * The component sets `html[data-magicui-theme-vt="active"]` during a
  * theme change and pins the collapsed clip-path on the "new" snapshot
  * so the new theme does not flash before the JS animation starts.
- * The `::view-transition-old(root)` is fully transparent so the
- * previous frame does not bleed through during the reveal.
+ *
+ * CRITICAL: `::view-transition-old(root)` must remain visible (opacity:1)
+ * because it is the ONLY thing covering the live DOM while the reveal
+ * expands. The live DOM was flipped to the new theme inside the VT
+ * callback; if the old snapshot is transparent, the user sees the new
+ * colors instantly across the whole page. The new snapshot is clipped
+ * to a tiny shape and expands to reveal the new theme beneath it.
  */
 html[data-magicui-theme-vt="active"]::view-transition-group(root) {
   animation-duration: var(--magicui-theme-toggle-vt-duration);
@@ -111,5 +116,11 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
   clip-path: var(--magicui-theme-vt-clip-from);
 }
 html[data-magicui-theme-vt="active"]::view-transition-old(root) {
-  opacity: 0;
+  opacity: 1;
+}
+/* Prevent the browser's default cross-fade from dimming the reveal. */
+html[data-magicui-theme-vt="active"]::view-transition-new(root),
+html[data-magicui-theme-vt="active"]::view-transition-old(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }

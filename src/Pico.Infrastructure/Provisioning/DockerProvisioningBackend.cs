@@ -168,13 +168,37 @@ public class DockerProvisioningBackend : IProvisioningBackend
     {
         try
         {
-            await _docker.Containers.RemoveContainerAsync(externalId,
-                new ContainerRemoveParameters { Force = true }, ct);
+            // Stop first (idempotent: returns 304 if already stopped), then remove
+            // with Force=true so both running and stopped containers are deleted.
+            // Ignore "not found" because a prior cleanup pass may already have
+            // removed it.
+            try
+            {
+                await _docker.Containers.StopContainerAsync(externalId, new ContainerStopParameters(), ct);
+            }
+            catch (DockerApiException dex) when (dex.Message.Contains("404") || dex.Message.Contains("Not Found"))
+            {
+                _logger.LogDebug("Container {Container} already stopped or missing during stop", externalId);
+            }
+
+            try
+            {
+                await _docker.Containers.RemoveContainerAsync(externalId,
+                    new ContainerRemoveParameters { Force = true, RemoveVolumes = true }, ct);
+            }
+            catch (DockerApiException dex) when (dex.Message.Contains("404") || dex.Message.Contains("Not Found"))
+            {
+                _logger.LogDebug("Container {Container} already removed", externalId);
+            }
+
             return ProvisionResult.Ok(externalId, "");
         }
-        catch (Exception ex) { return ProvisionResult.Fail(ex.Message); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Docker terminate failed for container {Container}", externalId);
+            return ProvisionResult.Fail(ex.Message);
+        }
     }
-
     public async Task<ResourceUsage> GetUsageAsync(string externalId, CancellationToken ct)
     {
         try
