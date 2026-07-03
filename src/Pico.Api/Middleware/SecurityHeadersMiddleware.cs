@@ -41,15 +41,15 @@ public sealed class SecurityHeadersMiddleware
                 h["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload";
             }
 
-            // CSP: allow self + the API origin + inline styles (Tailwind injects style tags at build)
+            // CSP: allow self + all API origins + inline styles (Tailwind injects style tags at build)
             // and inline scripts for Next.js hydration. Tighten further when feasible.
-            var apiOrigin = ctx.RequestServices
+            var apiOrigins = ctx.RequestServices
                 .GetRequiredService<IConfiguration>()["Cors:AllowedOrigins"]?
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .FirstOrDefault() ?? string.Empty;
-            var csp = string.IsNullOrEmpty(apiOrigin)
+                ?? [];
+            var csp = apiOrigins.Length == 0
                 ? "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
-                : $"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' {apiOrigin}";
+                : $"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' {string.Join(' ', apiOrigins)}";
             h["Content-Security-Policy"] = csp;
 
             return Task.CompletedTask;

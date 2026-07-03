@@ -45,7 +45,12 @@ services:
       - pico_net
       - ingress
     labels:
-      caddy: ${API_HOST:?API_HOST required when compose.prod.yaml is active}
+      # Primary + optional Cloudflare tunnel aliases (comma-separated).
+      # Set API_HOST in .env to the primary, and API_HOST_ALT to any
+      # tunnel alias. When API_HOST_ALT is empty, the trailing comma
+      # is harmless — CDP ignores empty segments.
+      # e.g. caddy: pico-api.aamar.cloud, pico-api.ski.bd
+      caddy: ${API_HOST:?API_HOST required}, ${API_HOST_ALT:-}
       caddy.reverse_proxy: "{{upstreams 8080}}"
 
   frontend:
@@ -54,7 +59,9 @@ services:
       - pico_net
       - ingress
     labels:
-      caddy: ${FRONTEND_HOST:?FRONTEND_HOST required when compose.prod.yaml is active}
+      # Primary + optional Cloudflare tunnel aliases (comma-separated).
+      # e.g. caddy: pico.aamar.cloud, pico.ski.bd
+      caddy: ${FRONTEND_HOST:?FRONTEND_HOST required}, ${FRONTEND_HOST_ALT:-}
       caddy.reverse_proxy: "{{upstreams 3000}}"
       caddy.reverse_proxy.flush_interval: "-1"
 

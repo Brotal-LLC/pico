@@ -3,11 +3,34 @@
  * Includes CSRF-safe credentials (cookies) for session auth.
  */
 
-// Public URL the browser uses to reach the API (set at build time via NEXT_PUBLIC_API_URL)
-// Server-side uses API_URL (internal Docker network) when available
+// Public URL the browser uses to reach the API.
+//
+// Server-side (SSR/SSG): uses API_URL (internal Docker network) when
+// available, falling back to NEXT_PUBLIC_API_URL.
+//
+// Browser-side: derives the API origin from the current hostname so
+// that each domain (pico.aamar.cloud → pico-api.aamar.cloud,
+// pico.ski.bd → pico-api.ski.bd) uses its own API endpoint. This
+// keeps cookies same-domain and avoids cross-origin issues when
+// accessing via Cloudflare tunnels. Falls back to the build-time
+// NEXT_PUBLIC_API_URL if the hostname doesn't match a known pattern.
 const API_URL = typeof window === "undefined"
   ? process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
-  : process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  : resolveBrowserApiUrl();
+
+function resolveBrowserApiUrl(): string {
+  const fallback = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+  const host = window.location.hostname;
+
+  // Map frontend host → API host for known domain pairs.
+  // Add new domain pairs here as needed.
+  const domainMap: Record<string, string> = {
+    "pico.aamar.cloud": "https://pico-api.aamar.cloud",
+    "pico.ski.bd": "https://pico-api.ski.bd",
+  };
+
+  return domainMap[host] ?? fallback;
+}
 
 export class PicoApiError extends Error {
   constructor(
