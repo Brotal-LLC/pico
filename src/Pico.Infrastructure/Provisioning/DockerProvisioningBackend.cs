@@ -186,21 +186,90 @@ public class DockerProvisioningBackend : IProvisioningBackend
             {
                 using var reader = new StreamReader(s);
                 var json = await reader.ReadToEndAsync(ct);
-                var parsed = System.Text.Json.JsonSerializer.Deserialize<ContainerStatsResponse>(json);
-                if (parsed is null) return ResourceUsage.Empty();
 
-                var cpuDelta = parsed.CPUStats.CPUUsage.TotalUsage - parsed.PreCPUStats.CPUUsage.TotalUsage;
-                var systemDelta = parsed.CPUStats.SystemUsage - parsed.PreCPUStats.SystemUsage;
-                var cpuPct = systemDelta > 0 ? Math.Round(100.0 * cpuDelta / systemDelta, 1) : 0.0;
-                var ramMb = parsed.MemoryStats.Usage / 1024.0 / 1024.0;
-                return new ResourceUsage(cpuPct, ramMb, 0, 0, 0, DateTimeOffset.UtcNow);
+                // Docker returns snake_case JSON; Docker.DotNet's
+                // ContainerStatsResponse uses PascalCase without
+                // [JsonPropertyName] attributes. System.Text.Json is
+                // case-sensitive by default, so deserializing into the
+                // SDK type yields all-zeros. Parse the raw JSON directly
+                // instead — it's a stable, well-documented schema.
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                // ── CPU% ────────────────────────────────────────────
+                // Docker formula: (cpu_delta / system_delta) * online_cpus * 100
+                var cpuStats = root.GetProperty("cpu_stats");
+                var preCpu = root.GetProperty("precpu_stats");
+                var cpuDelta = GetUsecpuTotal(cpuStats) - GetUsecpuTotal(preCpu);
+                var sysDelta = GetSysCpu(cpuStats) - GetSysCpu(preCpu);
+                var onlineCpus = cpuStats.TryGetProperty("online_cpus", out var oc) && oc.TryGetInt64(out var ocVal) && ocVal > 0
+                    ? ocVal : 1;
+                var cpuPct = sysDelta > 0
+                    ? Math.Round(100.0 * cpuDelta / sysDelta * onlineCpus, 1)
+                    : 0.0;
+
+                // ── RAM (MB) ────────────────────────────────────────
+                var ramBytes = root.GetProperty("memory_stats").TryGetProperty("usage", out var mu) && mu.TryGetInt64(out var memVal)
+                    ? memVal : 0L;
+                var ramMb = Math.Round(ramBytes / 1024.0 / 1024.0, 1);
+
+                // ── Network bytes ───────────────────────────────────
+                // Sum rx_bytes / tx_bytes across all network interfaces.
+                long netIn = 0, netOut = 0;
+                if (root.TryGetProperty("networks", out var networks))
+                {
+                    foreach (var net in networks.EnumerateObject())
+                    {
+                        if (net.Value.TryGetProperty("rx_bytes", out var rx) && rx.TryGetInt64(out var rxVal))
+                            netIn += rxVal;
+                        if (net.Value.TryGetProperty("tx_bytes", out var tx) && tx.TryGetInt64(out var txVal))
+                            netOut += txVal;
+                    }
+                }
+
+                // ── Disk I/O (KB/s) ─────────────────────────────────
+                // blkio_stats.io_service_bytes_recursive: sum read+write
+                // values. This is cumulative — convert to KB (not KB/s
+                // since we don't track delta between samples yet).
+                long diskBytes = 0;
+                if (root.TryGetProperty("blkio_stats", out var blkio) &&
+                    blkio.TryGetProperty("io_service_bytes_recursive", out var ioBytes) &&
+                    ioBytes.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var entry in ioBytes.EnumerateArray())
+                    {
+                        if (entry.TryGetProperty("value", out var v) && v.TryGetInt64(out var vVal))
+                            diskBytes += vVal;
+                    }
+                }
+                var diskKbps = (int)(diskBytes / 1024);
+
+                return new ResourceUsage(cpuPct, ramMb, diskKbps, netIn, netOut, DateTimeOffset.UtcNow);
             }
             return ResourceUsage.Empty();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to get container stats for {ExternalId}", externalId);
             return ResourceUsage.Empty();
         }
+    }
+
+    private static long GetUsecpuTotal(System.Text.Json.JsonElement cpuStats)
+    {
+        if (cpuStats.TryGetProperty("cpu_usage", out var cu) &&
+            cu.TryGetProperty("total_usage", out var tu) &&
+            tu.TryGetInt64(out var val))
+            return val;
+        return 0;
+    }
+
+    private static long GetSysCpu(System.Text.Json.JsonElement cpuStats)
+    {
+        if (cpuStats.TryGetProperty("system_cpu_usage", out var sc) &&
+            sc.TryGetInt64(out var val))
+            return val;
+        return 0;
     }
 
     public async Task<BackendHealth> GetHealthAsync(CancellationToken ct)
