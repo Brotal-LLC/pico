@@ -102,7 +102,7 @@
 ## 13. Out-of-Scope but Shipped (post-audit over-delivery)
 - [x] 6 security response headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - [x] Signup 500-on-null-name bug fixed + `req.Name?.Trim()`
-- [x] Rate limiting on /api/auth/login + /api/auth/signup (fixed window, 5/15min/IP)
+- [x] Rate limiting on /api/auth/login + /api/auth/signup (fixed window, 20/15min/IP — raised from 5 to avoid false lockouts behind Cloudflare/Caddy proxy)
 - [x] Persistent auth cookie (sliding 7-day expiration)
 - [x] AuditLog writes from every state-changing endpoint
 - [x] InvoiceGenerationService + `POST /api/admin/invoices/generate`
@@ -135,3 +135,17 @@
 - [ ] API keys — RBAC + cookie auth fully cover the rubric; API keys would only matter for a public API surface that doesn't exist.
 - [ ] Network/subnet model — VMs have `ipAddress`, no subnet concept; not in rubric.
 - [ ] Per-second billing — billing is hourly.
+
+## 15. Post-audit hardening (commits `5969e8a`→`67a9264`)
+
+Features shipped after the audit closure at commit `4271582`, driven by live deployment feedback:
+
+- [x] VM web shell — WebSocket terminal (`GET /api/resources/{id}/shell`) exec's into the Docker container; frontend renders via xterm.js (`VmShellPanel.tsx`)
+- [x] Docker network reconciler — `DockerNetworkReconciler` (IHostedService) reclaims orphaned IPs on the `pico-vm-net` bridge at startup; `NetworkService.ClaimExternalIpAsync` + 3-attempt retry in `ProvisionAsync`
+- [x] Animated theme toggle — View Transitions API with clip-path circle reveal; `::view-transition-old(root)` kept opaque to mask the live DOM during transition
+- [x] Docker termination hardening — `TerminateAsync` stops container before force-removing; handles missing/already-removed containers gracefully
+- [x] VM configuration card — detail page shows Package (flavor), Image (OS + version), Resources (vCPU · RAM · disk) for Running/Stopped/Provisioning VMs
+- [x] Stopped-VM metrics fix — `GetUsageAsync` returns `ResourceUsage.Empty()` for Stopped/Terminated VMs; frontend stops polling usage when VM is not Running
+- [x] Signup UX hardening — frontend password `min(8)` aligned with backend; RFC 7807 ProblemDetails error parsing (`detail` field); 429 rate-limit message; already-logged-in redirect on `/signup` and `/login`
+- [x] Production credential rotation — `DataSeeder` reads `DEMO_PASSWORD` / `ADMIN_PASSWORD` from env vars; `compose.prod.yaml` passes them to the API container
+- [x] Rate limiter raised from 5 to 20 attempts / 15 min / IP (behind Cloudflare/Caddy all users share one proxy IP)

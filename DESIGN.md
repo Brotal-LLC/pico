@@ -10,7 +10,7 @@ This document explains the **why** behind the major architectural decisions, the
 | 20% | Backend / API / data model | Clean architecture, EF Core with FK constraints (migration `AddForeignKeyConstraints`), RESTful API with `ProblemDetails`, audit-log writes for every state-changing endpoint. |
 | 15% | Frontend | Next.js 16 App Router (server + client split). TanStack Query. SSE-driven live updates. Per-page document titles. Public-route AuthProvider skip — no anonymous 401 noise. |
 | 15% | Engineering judgment | Pluggable provisioning backend (`mock` / `docker` / `openstack`). Resource state machine at the entity boundary. Terraform-style plan preview endpoint. Testcontainers for integration. Pre-commit gate is a hard quality bar (build + test + typecheck + lint). |
-| 15% | Reliability / security / testing | Cookie auth + CSRF (antiforgery). RBAC. Ownership enforcement. Rate limiting on `/api/auth/*`. Six security response headers. **162 tests** passing (135 backend + 27 frontend vitest). PBKDF2 password hashing. |
+| 15% | Reliability / security / testing | Cookie auth + CSRF (antiforgery). RBAC. Ownership enforcement. Rate limiting on `/api/auth/*` (20/15min/IP). Six security response headers. **249 tests** passing (198 backend + 51 frontend vitest). PBKDF2 password hashing. |
 | 10% | Docker / deployment / docs | Single-file compose. Non-root containers (UID 1000). Healthchecks on every service. `Dockerfile.prod` for reproducibility. Full README + DESIGN + AI_USAGE + REQUIREMENTS + AUDIT_REPORT. |
 | 5% | AI-native development | See [AI_USAGE.md](./AI_USAGE.md). |
 
@@ -76,6 +76,22 @@ The frontend dedupes events by id before appending, so refetching after navigati
 
 `/api/admin/metrics` returns an SLA summary alongside counts: per-status fleet breakdown (running / stopped / provisioning / failed / terminated), total uptime hours vs possible uptime hours, computed uptime percent across the active fleet. Computed in C# against `Resource.CreatedAt` / `Resource.UpdatedAt`; rebuild cost is O(active fleet).
 
+### Docker network reconciler (IP conflict defense)
+
+`DockerNetworkReconciler` (IHostedService) runs on API startup when `PROVISIONING_MODE=docker`. It scans the `pico-vm-net` Docker bridge for IPs claimed by containers that have no corresponding DB resource record, and reclaims them. Combined with `NetworkService.ClaimExternalIpAsync` and a retry loop in `ResourceService.ProvisionAsync` (up to 3 attempts on `Address already in use`), the system survives orphaned containers from previous deployments without manual cleanup.
+
+### In-browser VM web shell
+
+`GET /api/resources/{id}/shell` upgrades to a WebSocket connection (ownership-enforced) that exec's into the Docker container backing the VM. The frontend renders an interactive terminal via `VmShellPanel.tsx` (xterm.js). Available only in `docker` provisioning mode where a real container exists to exec into.
+
+### Animated theme toggle (View Transitions API)
+
+The theme switcher uses the browser View Transitions API with `next-themes`. A clip-path circle expands from the toggle button to reveal the new theme, while the old DOM snapshot stays fully opaque (`opacity: 1`) so the live DOM (already updated with the new theme class) is masked during the reveal. Falls back to an instant toggle in browsers without View Transitions support.
+
+### Production credential rotation
+
+`DataSeeder` reads `DEMO_PASSWORD` and `ADMIN_PASSWORD` from environment variables at startup. Local dev defaults (`pico-demo-password` / `pico-admin-password`) are only used as fallbacks. The production compose overlay (`compose.prod.yaml`) passes these vars into the API container, enabling per-deployment credential rotation without code changes.
+
 ---
 
 ## Frontend decisions
@@ -92,7 +108,7 @@ The frontend dedupes events by id before appending, so refetching after navigati
 
 ## What I would build next (with more time)
 
-Already shipped since cycle-1 (because of audit over-delivery): LISTEN/NOTIFY for SSE, Argon2id migration, frontend component tests, Playwright smoke test, CI pipeline, observability stack, Terraform-like plan preview, SLA summary, public GitHub repo. So this list is now leaner than it was:
+Shipped post-cycle-1: LISTEN/NOTIFY for SSE, Argon2id migration, frontend component tests, Playwright smoke test, CI pipeline, observability stack, Terraform-like plan preview, SLA summary, public GitHub repo, **VM web shell, Docker network reconciler, animated theme toggle, production credential rotation, signup UX hardening**. This list reflects what remains:
 
 1. **Real OIDC** — replace cookie auth with Keycloak / Auth0 OIDC for SSO.
 2. **Real OpenStack end-to-end** — full flavor mapping, image upload, security groups; against an actual DevStack cluster (`§12` in OpenSpec tasks.md).

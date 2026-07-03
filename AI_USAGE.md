@@ -17,7 +17,7 @@ The build followed the 8-phase pattern from the **`showcase-grade-take-home`** s
 | 0 | **Read the brief carefully** | Parsed the FGL take-home PDF. Pulled out the 7-criterion weighted rubric before writing any code. The rubric IS the spec. | `REQUIREMENTS.md §7` table row-for-row mirrors the brief's rubric |
 | 1 | **OpenSpec artifacts** | Wrote `openspec/changes/pico-self-service-cloud/{proposal.md, tasks.md}` plus 4 capability specs (`identity`, `billing`, `catalog`, `provisioning`). | `openspec validate` passes; 152 numbered tasks |
 | 2 | **MoA-generated implementation plan** | Fed the OpenSpec artifacts to a Mixture-of-Agents (6 reference models + gpt-5.5 aggregator) workflow. Output was treated as a first draft, not ground truth. | `.hermes/plans/pico-implementation-plan.md` (cleaned up after execution) |
-| 3 | **Phased TDD execution** | 12 phases × 11–15 tasks each. Every task = failing test → minimal impl → green → commit. ~33 commits over the build window. | `git log --oneline | wc -l` = 33 |
+| 3 | **Phased TDD execution** | 12 phases × 11–15 tasks each. Every task = failing test → minimal impl → green → commit. ~50 commits over the build window. | `git log --oneline | wc -l` = 50 |
 | 4 | **Deployment story** | `compose.yaml`, `Dockerfile.{dev,prod}` for both services, non-root containers (UID 1000), Caddy labels for `<your-deployment-host>`, healthchecks on every service. | `docker compose up --build` from clean clone; demo creds work |
 | 5 | **Real infra flex** | Three provisioning backends behind `IProvisioningBackend`: `mock` (default, zero deps), `docker` (real containers), `openstack` (real Nova API). `mock` is what reviewers run. | `PROVISIONING_MODE` switches at boot |
 | 6 | **Brief rubric surfaced in docs** | Rewrote README to put the weighted KPI scorecard front-and-center; built REQUIREMENTS.md as the brief-↔-code mapping. The rubric lives in the docs, not in marketing copy. | Reviewer can find every brief criterion in `REQUIREMENTS.md` without scrolling |
@@ -97,7 +97,7 @@ From the 150+ skills available, these were the ones that actually shaped the bui
 ## 5. How I reviewed AI output
 
 1. **Every commit passes the pre-commit gate.** Build + tests + TypeScript + ESLint + Vitest. There's no escape hatch — `scripts/pre-commit.sh` uses `set -euo pipefail`.
-2. **All AI-generated code paths have tests.** Resource lifecycle (135 backend tests), hooks + components (27 frontend tests), full e2e (7 Playwright specs) cover the surfaces the AI generated most of.
+2. **All AI-generated code paths have tests.** Resource lifecycle (198 backend tests), hooks + components (51 frontend tests), full e2e (6 Playwright specs) cover the surfaces the AI generated most of.
 3. **Domain code is tested at the entity boundary.** State machine, entity invariants, ownership checks, state-transition idempotency.
 4. **Public-facing claims are reproducible.** `AUDIT_REPORT.md §7` lists every command a reviewer must run to verify each claim; `REQUIREMENTS.md §8.1` adds the live-deployment curl probes.
 
@@ -117,19 +117,19 @@ The "audit-driven-overdelivery" pattern (the 3-commit cadence: security/audit/fe
 
 ---
 
-## 7. Stats (as of commit `fbddf79`)
+## 7. Stats (as of commit `67a9264`)
 
 | Metric | Value |
 |--------|-------|
-| Backend tests | **135** (xUnit + FluentAssertions + Testcontainers; `--filter "!~Integration"` → 130 in pre-commit, full 135 with Docker available) — all passing |
-| Frontend unit tests | **27** (Vitest + Testing Library; `Badge` + `StatusBadge` + `usePageTitle` + utilities) — all passing |
-| End-to-end tests | **7** (Playwright, Chromium; `smoke.spec.ts` 4 cases + `provision-plan.spec.ts` 3 cases) |
-| Backend source LOC (src/) | **4,549** lines (8 entities, 4 project layers, 23 endpoints) |
-| Backend test LOC | **2,279** lines |
-| Frontend source LOC | **2,822** lines (13 pages, 5 API helpers, 11 UI primitives) |
-| Frontend test LOC | **148** lines (vitest) + **104** lines (playwright) |
-| Documentation LOC | ~1,800 lines across README + DESIGN + AI_USAGE + REQUIREMENTS + AUDIT_REPORT |
-| Commits on `main` from initial repo | **33** |
+| Backend tests | **198** (xUnit + FluentAssertions + Testcontainers; `--filter "!~Integration"` excludes Docker-dependent tests in pre-commit; full 198 with Docker available; 2 skipped for WebSocket shell) — all passing |
+| Frontend unit tests | **51** (Vitest + Testing Library; Badge, ThemeToggle, usePageTitle, providers, lifecycle, utilities) — all passing |
+| End-to-end tests | **6** (Playwright, Chromium; `smoke.spec.ts` 4 cases + `provision-plan.spec.ts` 2 cases) |
+| Backend source LOC (src/) | **6,416** lines (8 entities, 4 project layers, 7 endpoint files, network reconciler) |
+| Backend test LOC | **4,905** lines |
+| Frontend source LOC | **4,410** lines (12 pages, API client, 8 UI primitives, VmShellPanel, animated theme toggler) |
+| Frontend test LOC | **444** lines (vitest) + **114** lines (playwright) |
+| Documentation LOC | ~1,200 lines across README + DESIGN + AI_USAGE + REQUIREMENTS + AUDIT_REPORT |
+| Commits on `main` from initial repo | **50** |
 | Public-GitHub visibility | Yes (per brief requirement #1) |
 | Final weighted rubric score | **96.0 / 100** (see `AUDIT_REPORT.md §1`) |
 

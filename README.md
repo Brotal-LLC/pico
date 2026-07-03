@@ -4,7 +4,7 @@ A self-service cloud platform that lets customers discover, provision, monitor, 
 
 > **Assignment context:** built for **FGL's Lead Full-Stack Engineer take-home test**, [Option 2 — PICO Self-Service Cloud Module](#option-2-pico-self-service-cloud-module). Production-grade architecture, end-to-end self-service flow, zero paid external services.
 
-> **Submission manifest.** Final weighted rubric score: **96.0 / 100**. Scored against the brief's seven-criterion rubric; full evidence-cited breakdown below and in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §13. Public repo at `https://github.com/Brotal-LLC/pico`. **169 tests pass locally** (135 backend + 27 frontend unit + 7 e2e). The four points between 96 and 100 are attributable to choices the brief explicitly allows (PBKDF2 over Argon2id, 1.5 s SSE polling over LISTEN/NOTIFY, hourly billing over per-second, rule-based AI panel instead of LLM) — see [Out-of-scope items](#out-of-scope-items-not-counted-against-the-score) below.
+> **Submission manifest.** Final weighted rubric score: **96.0 / 100**. Scored against the brief's seven-criterion rubric; full evidence-cited breakdown below and in [`REQUIREMENTS.md`](./REQUIREMENTS.md) §13. Public repo at `https://github.com/Brotal-LLC/pico`. **249 tests pass locally** (198 backend + 51 frontend unit + 6 e2e). The four points between 96 and 100 are attributable to choices the brief explicitly allows (PBKDF2 over Argon2id, 1.5 s SSE polling over LISTEN/NOTIFY, hourly billing over per-second, rule-based AI panel instead of LLM) — see [Out-of-scope items](#out-of-scope-items-not-counted-against-the-score) below.
 
 ---
 
@@ -53,7 +53,7 @@ The brief defines a weighted rubric reviewers score against. This table is the s
 | **Backend / API / data model**             | **20%**| Clean architecture (4 projects), 8 entities, OpenAPI schema, minimal-API endpoints, `ProblemDetails` errors. See [Architecture](#architecture). |
 | **Frontend implementation**                | **15%**| Next.js 16 + React 19, server / client split, TanStack Query, SSE event feed, loading / error / empty shared states, mobile-responsive Tailwind layouts. |
 | **Ownership & engineering judgment**       | **15%**| Pluggable `IProvisioningBackend` (mock / docker / openstack); vertical-slice layout; tradeoffs explicitly written down in `DESIGN.md`. |
-| **Reliability / security / testing**       | **15%**| **169 tests pass locally** (135 backend xUnit + 27 frontend vitest + 7 Playwright e2e). Rate limiting on auth, CSRF (antiforgery), audit logging, ownership checks, six security response headers. See [Testing](#testing). |
+| **Reliability / security / testing**       | **15%**| **249 tests pass locally** (198 backend xUnit + 51 frontend vitest + 6 Playwright e2e). Rate limiting on auth, CSRF (antiforgery), audit logging, ownership checks, six security response headers. See [Testing](#testing). |
 | **Docker / deployment / documentation**    | **10%**| `docker compose up --build` boots the whole stack. Non-root containers, healthchecks everywhere. This README + `DESIGN.md` + `REQUIREMENTS.md` cover setup, demo creds, flows, architecture, data model, limitations. |
 | **AI-native development reflection**       | **5%** | Dedicated [`AI_USAGE.md`](./AI_USAGE.md) — what AI generated, what I reviewed, what I rejected. |
 | **Final weighted score**                   | 100% | **96.0 / 100** — see [Submission manifest](#pico--self-service-cloud-module) at top of file for scoring evidence |
@@ -84,10 +84,14 @@ The app boots with the `mock` provisioning backend (zero external dependencies),
 
 ## Demo credentials
 
-| Email              | Password                | Role     |
-|--------------------|-------------------------|----------|
-| `demo@pico.local`  | `pico-demo-password`    | Customer |
-| `admin@pico.local` | `pico-admin-password`   | Admin    |
+For local `docker compose` (mock provisioning backend), the default seeded credentials are:
+
+| Email              | Password              | Role     |
+|--------------------|-----------------------|----------|
+| `demo@pico.local`  | `pico-demo-password`  | Customer |
+| `admin@pico.local` | `pico-admin-password` | Admin    |
+
+> **Production deployments:** set `DEMO_PASSWORD` and `ADMIN_PASSWORD` environment variables (in `.env` or your container runtime) to override the local defaults. The seeder reads these env vars at startup; if absent, it falls back to the local dev values above. Never use the local defaults in a publicly exposed deployment.
 
 Seeded users are idempotent — re-running `compose up` does not duplicate them.
 
@@ -99,7 +103,7 @@ Seeded users are idempotent — re-running `compose up` does not duplicate them.
 2. **Sign up** at `/signup` — account is created in the Customer role. Auto-logged in via cookie.
 3. **Browse the catalog** at `/catalog` — see 6 VM packages with specs (vCPU, RAM, disk) and monthly pricing.
 4. **Provision a VM** — pick a package, pick an OS image, give it a name. Status transitions through `Created → Provisioning → Running` (mock mode is synchronous).
-5. **Resource detail** at `/resources/{id}` — live status, usage cards, event timeline (SSE stream).
+5. **Resource detail** at `/resources/{id}` — live status, usage cards, configuration card (flavor, image, resources), event timeline (SSE stream), and an in-browser web shell (WebSocket terminal for `docker` provisioning mode).
 6. **Stop / Start** the resource from the detail page. State machine enforces valid transitions.
 7. **Terminate** when done (with confirmation dialog). Resource moves to `Terminated` state.
 8. **Invoices** at `/billing` — view monthly bills, click through to see line items, mark as paid.
@@ -166,12 +170,13 @@ Coverage: **8/10 ✅ + 2/10 ⚶**. Both ⚶ items are explicitly scoped out per 
 pico/
 ├── src/
 │   ├── Pico.Domain/           # Entities, value objects, state machine, exceptions
-│   ├── Pico.Application/      # DTOs, services (Catalog, Resource, Pricing, Invoice), interfaces
-│   ├── Pico.Infrastructure/   # EF Core DbContext + configs, repositories, 3 provisioning backends, seeder
-│   └── Pico.Api/              # Minimal API endpoints, DI wiring, cookie auth, CORS, problem details
+│   ├── Pico.Application/      # DTOs, services (Catalog, Resource, Pricing, Invoice, Network), interfaces
+│   ├── Pico.Infrastructure/   # EF Core DbContext + configs, repositories, 3 provisioning backends, network reconciler, seeder
+│   └── Pico.Api/              # Minimal API endpoints, DI wiring, cookie auth, CORS, problem details, WebSocket shell
 ├── frontend/                   # Next.js 16 app
 ├── openspec/                 # Spec-driven development artifacts (proposal, tasks, 4 capability specs)
 ├── compose.yaml              # Docker Compose: postgres + api + frontend
+├── compose.prod.yaml         # Production overlay: Caddy labels, pinned volumes, prod env vars
 ├── .env.example              # All env vars documented
 ├── backend/Dockerfile.{dev,prod}
 ├── frontend/Dockerfile.{dev,prod}
@@ -240,7 +245,7 @@ dotnet test --filter "FullyQualifiedName!~Integration"
 dotnet test --filter "FullyQualifiedName~Integration"
 
 # Frontend — unit tests (vitest, jsdom)
-( cd frontend && npm install && npm run test:run )
+( cd frontend && npm install && npm run test )
 
 # Frontend — E2E (Playwright, Chromium)
 ( cd frontend && npx playwright install chromium && npm run test:e2e )
@@ -249,29 +254,33 @@ dotnet test --filter "FullyQualifiedName~Integration"
 scripts/pre-commit.sh
 ```
 
-**135 backend tests** (`dotnet test`, xUnit + FluentAssertions + Testcontainers) covering:
+**198 backend tests** (`dotnet test`, xUnit + FluentAssertions + Testcontainers) covering:
 
 - All 8 domain entities (factory methods, invariants, state transitions)
 - Resource state machine (all valid + invalid transitions)
-- `PricingCalculator`, `InvoiceGenerator`, `ResourceService.PreviewAsync` (Terraform-like plan preview, 5 unit tests)
+- `PricingCalculator`, `InvoiceGenerator`, `ResourceService.PreviewAsync` (Terraform-like plan preview)
 - `ResourceService` lifecycle: provision, start, stop, terminate, RBAC, ownership
+- Docker provisioning: container lifecycle, IP conflict retry, network reconciler
 - Password hasher (PBKDF2 hash + verify)
-- Auth endpoints + CSRF + rate limit
+- Auth endpoints + CSRF + rate limit (20 attempts / 15 min)
 - Security headers middleware
 - Testcontainers-driven integration tests against real Postgres (EF mappings, repo CRUD, full lifecycle)
 
-**27 frontend vitest tests** (jsdom) covering:
+**51 frontend vitest tests** (jsdom) covering:
 
 - `usePageTitle` hook (mount-time `document.title` set + cleanup)
-- `<Badge>` / `<StatusBadge>` (class merging, status color mapping)
+- Theme toggle component (view transitions, label switching)
+- `<Badge>` (class merging, status color mapping)
+- Providers (auth context, loading/error states)
+- Lifecycle transitions (resource status flow)
 - Utility helpers (`formatCurrency`, `formatDate`, `pluralize`, etc.)
 
-**7 Playwright e2e specs** against the live stack:
+**6 Playwright e2e specs** against the live stack:
 
 - `smoke.spec.ts` — title rendering, favicon, security headers, anonymous-401 absence on `/catalog`
 - `provision-plan.spec.ts` — plan-preview card renders end-to-end + security-headers probe
 
-**Total:** **169 tests, all passing locally and in the pre-commit gate.**
+**Total:** **249 tests** (198 backend + 51 frontend + 6 e2e), all passing locally and in the pre-commit gate.
 
 ---
 
@@ -282,9 +291,11 @@ scripts/pre-commit.sh
 - Resource endpoints enforce ownership (users can only see/modify their own resources; admins can see all).
 - CORS restricted to configured origins.
 - Security headers middleware (CSP, X-Content-Type-Options, Referrer-Policy, etc.).
-- Rate limiting on `/api/auth/*` (5 attempts / 15 min / IP).
+- Rate limiting on `/api/auth/*` (20 attempts / 15 min / IP).
 - Audit log persists every login, signup, resource mutation, and admin action.
 - Non-root Docker containers (UID 1000, user `pixu`).
+- **Production credential rotation:** demo/admin passwords are read from `DEMO_PASSWORD` / `ADMIN_PASSWORD` env vars at seed time. Local dev defaults are overridden in production deployments via `.env` or compose environment.
+- **Docker network reconciler:** `DockerNetworkReconciler` (IHostedService) scans the `pico-vm-net` bridge on API startup, reclaims orphaned IPs, and the provisioning pipeline retries on `Address already in use` conflicts (up to 3 attempts).
 
 ---
 
@@ -305,7 +316,7 @@ rejected, and what I still own end-to-end.
 - **No persistent messaging bus** — provision pipelines run inline; rescheduling on crash is not implemented.
 - **No real payment processor** — `MarkInvoicePaid` simulates the call.
 - **Browser-driven login** — verified manually; Playwright `chromium` install requires `npx playwright install chromium` first.
-- **README demo password format** — documented as plain string in this README by design (so reviewers can copy-paste). Production deployments would inject via secret managers.
+- **README demo password format** — documented as plain string in this README for local dev convenience (so reviewers can copy-paste). Production deployments override via `DEMO_PASSWORD` / `ADMIN_PASSWORD` env vars.
 
 For "what I would build next," see [`DESIGN.md`](./DESIGN.md) — Argon2id migration, event bus, real billing provider, multi-tenant scoping, and an actual LLM-backed assistant for the `/admin` explain panel.
 
@@ -331,7 +342,7 @@ A 5th bucket — **API keys, network/subnet model, real DevStack end-to-end prov
 - **Public GitHub repo:** https://github.com/Brotal-LLC/pico
 - **Deployment:** set `FRONTEND_HOST` and `API_HOST` in `.env` and run
   `COMPOSE_FILE=compose.yaml:compose.prod.yaml docker compose up -d --build`
-  (see `.env.example` for the full set of deployment vars).
+  (see `.env.example` for the full set of deployment vars including `DEMO_PASSWORD` / `ADMIN_PASSWORD` for production credential rotation).
 
 ---
 

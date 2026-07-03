@@ -71,7 +71,7 @@ external services. It exercises the rubric areas the brief grades on:
 **How PICO complies:**
 
 - AI assistance used heavily. See [`AI_USAGE.md`](./AI_USAGE.md) for a per-area reflection on what was generated, what was reviewed manually, and what was rejected or rewritten.
-- Tests were written first where requirements demanded; integration tests use real Postgres (Testcontainers); all 152 tests pass in the pre-commit gate (`dotnet build && dotnet test && npm run typecheck && npm run lint && npm run test:run`).
+- Tests were written first where requirements demanded; integration tests use real Postgres (Testcontainers); all 249 tests pass in the pre-commit gate (`dotnet build && dotnet test && npm run typecheck && npm run lint && npm run test`).
 - The pre-commit hook (`scripts/pre-commit.sh`) replaces "reviewed by someone" with "reviewed by the machine" for every push.
 - I still own every architectural decision and would defend each tradeoff (see `DESIGN.md`).
 
@@ -135,7 +135,7 @@ the README walks a reviewer through it.
 | Service / package selection   |   ✅   | `/catalog` (6 flavors, 4 OS images)                     |
 | Pricing or cost estimate      |   ✅   | `PricingCalculator` + on-card monthly projection        |
 | Simulated provisioning FSM    |   ✅   | `ResourceStateMachine` (Created → Provisioning → Running ⇄ Stopped → Terminated, alt: Failed) |
-| Resource list / detail view   |   ✅   | `/dashboard`, `/dashboard/[id]` with SSE event feed    |
+| Resource list / detail view   |   ✅   | `/dashboard`, `/resources/[id]` with SSE event feed    |
 | Billing / invoice view        |   ✅   | `/billing`, `/billing/[id]`, mark-as-paid action       |
 | Error / loading / empty state |   ✅   | Shared `<EmptyState>` + `<ErrorState>` components, Suspense + `isFetching` flags throughout |
 | Mocked infra API              |   ✅   | `IProvisioningBackend` with `MockBackend` default      |
@@ -190,7 +190,7 @@ assistant would slot in via a vendored model.
 | **Backend / API / data model**             | **20%**| Clean architecture (4 projects), 8 entities, OpenAPI schema, minimal-API endpoints with `ProblemDetails` errors. See `DESIGN.md` §"Architecture". |
 | **Frontend implementation**                | **15%**| Next.js 16 + React 19, server / client split, TanStack Query, SSE, loading / error / empty shared components, mobile-responsive Tailwind layouts. |
 | **Ownership & engineering judgment**       | **15%**| Compose-friendly structure, vertical slices, pluggable provisioning backend (mock / docker / openstack). `DESIGN.md` lists explicit tradeoffs (PBKDF2 vs Argon2id, mock vs real IaaS, fresh migrations over seeding). |
-| **Reliability / security / testing**       | **15%**| 169 tests passing (135 backend xUnit + 27 frontend vitest + 7 Playwright e2e), rate limiting on auth endpoints, security headers, CSRF, audit logging, ownership checks on every resource endpoint. |
+| **Reliability / security / testing**       | **15%**| 249 tests passing (198 backend xUnit + 51 frontend vitest + 6 Playwright e2e), rate limiting on auth endpoints, security headers, CSRF, audit logging, ownership checks on every resource endpoint. |
 | **Docker / deployment / documentation**    | **10%**| `docker compose up --build` boots the entire stack; non-root containers; healthchecks on every service; README + DESIGN.md + REQUIREMENTS.md cover setup, demo creds, flows, architecture, data model, limitations. |
 | **AI-native development reflection**       | **5%** | [`AI_USAGE.md`](./AI_USAGE.md) — what was AI-generated, what was reviewed manually, what was rejected, and what I would still own. |
 | **Total**                                  | **100%** |                                                                          |
@@ -201,15 +201,15 @@ assistant would slot in via a vendored model.
 
 | Layer        | Tooling                                   | Count | Notes                                              |
 |--------------|-------------------------------------------|------:|----------------------------------------------------|
-| Backend unit + integration | xUnit + FluentAssertions + Testcontainers (PostgreSQL) |   135 | Domain entities, state machine, services, hashing, EF mappings, repos, full lifecycle |
-| Frontend unit | Vitest + Testing Library                   |    27 | Hooks (`usePageTitle`), components (`Badge`, `StatusBadge`), utilities (`formatCurrency`, `formatDate`, `pluralize`) |
-| Frontend e2e | Playwright (Chromium)                      |     7 | `smoke.spec.ts` (title, favicon, security headers, anonymous-401 absence on `/catalog`); `provision-plan.spec.ts` (plan-preview card end-to-end + security-headers probe) |
+| Backend unit + integration | xUnit + FluentAssertions + Testcontainers (PostgreSQL) |   198 | Domain entities, state machine, services, hashing, EF mappings, repos, full lifecycle, Docker provisioning, IP conflict retry, rate limit |
+| Frontend unit | Vitest + Testing Library                   |    51 | Hooks (`usePageTitle`), components (`Badge`, `ThemeToggle`, `Providers`), lifecycle transitions, utilities (`formatCurrency`, `formatDate`, `pluralize`) |
+| Frontend e2e | Playwright (Chromium)                      |     6 | `smoke.spec.ts` (title, favicon, security headers, anonymous-401 absence on `/catalog`); `provision-plan.spec.ts` (plan-preview card end-to-end + security-headers probe) |
 
 ```bash
 cd pico
-dotnet test                              # 135 backend tests
-( cd frontend && npm install && npm test )  # 27 frontend vitest
-( cd frontend && npm run e2e )              # 7 Playwright e2e (against running stack)
+dotnet test                              # 198 backend tests
+( cd frontend && npm install && npm run test )  # 51 frontend vitest
+( cd frontend && npm run e2e )              # 6 Playwright e2e (against running stack)
 ```
 
 > Playwright needs `npx playwright install chromium` once; the e2e specs assume the stack is running locally or at the deployment URL.
@@ -238,7 +238,7 @@ curl -sS -X POST https://<your-api-host>/api/resources/preview \
 gh repo view Brotal-LLC/pico --json visibility     # → PUBLIC
 ```
 
-A reviewer who runs both the local `dotnet test` / `npm test` / `npm run e2e` chain and the live probes lands on **96.0 / 100** (this audit), **0 outstanding P0/P1 gaps**, **169 tests** passing, and a **public** repo.
+A reviewer who runs both the local `dotnet test` / `npm test` / `npm run e2e` chain and the live probes lands on **96.0 / 100** (this audit), **0 outstanding P0/P1 gaps**, **249 tests** passing, and a **public** repo.
 
 ---
 
@@ -286,7 +286,7 @@ listed here explicitly.
 | Pricing or cost estimate                                                    | `Pico.Application.Services.PricingCalculator` + cards display           |
 | Simulated provisioning state machine                                        | `Pico.Domain.Entities.ResourceStateMachine` + `MockBackend`             |
 | Resource list view                                                          | `app/(dashboard)/dashboard/page.tsx`                                     |
-| Resource detail view with state                                             | `app/(dashboard)/dashboard/[id]/page.tsx`                               |
+| Resource detail view with state                                             | `app/(dashboard)/resources/[id]/page.tsx`                               |
 | Billing / invoice view                                                      | `app/(dashboard)/billing/page.tsx` + `[id]/page.tsx`                     |
 | Clear error / loading / empty states                                        | `frontend/src/components/{EmptyState,ErrorState}.tsx`, Suspense + TanStack `isFetching` flags |
 | Mocked infrastructure API / service layer                                   | `IProvisioningBackend` with `MockBackend` (default), `DockerBackend`, `OpenStackBackend` |
@@ -340,7 +340,7 @@ working scorecard below is the operating number we track.
 | Backend / API / data model                 |     20 |          96 |         19.2    | FK constraints applied; `/metrics` SQL aggregates; idempotent seeder; preview endpoint |
 | Frontend implementation                    |     15 |          95 |         14.25   | Plan-preview card; per-page titles; favicon; AuthProvider public-route skip; vitest + playwright |
 | Ownership & engineering judgment           |     15 |          96 |         14.4    | Pluggable provisioning backend; OpenSpec task ledger; pre-commit gate |
-| Reliability / security / testing           |     15 |          95 |         14.25   | 169 tests (135 + 27 + 7); 6 security headers; rate limit; CSRF; audit log; FK |
+| **Reliability / security / testing**           |     15 |          95 |         14.25   | 249 tests (198 + 51 + 6); 6 security headers; rate limit; CSRF; audit log; FK |
 | Docker / deployment / documentation        |     10 |          98 |          9.8    | `Dockerfile.prod`; healthchecks; non-root; strict `npm ci`; full docs |
 | AI-native development reflection           |      5 |          98 |          4.9    | `AI_USAGE.md` honest reflection; `REQUIREMENTS.md` §2 policy statement |
 | **Total**                                  |  **100** |            |    **96.0**    | Audit closure seal: AUDIT_REPORT.md |
@@ -351,4 +351,4 @@ The audit over-delivery roadmap ([`AUDIT_REPORT.md`](./AUDIT_REPORT.md)) covers 
 
 ---
 
-*Last updated: aligned with commit `4271582` (consolidation of supporting docs; AUDIT_REPORT.md is the closure seal).*
+*Last updated: aligned with commit `67a9264` (post-audit hardening: VM shell, Docker reconciler, signup UX, credential rotation, theme toggle, 249 tests).*

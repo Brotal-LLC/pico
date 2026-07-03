@@ -17,7 +17,7 @@ This is the **final, verified** report after two cycles of audit-over-delivery. 
 - **All P1 / strong-improvement gaps closed** (Dockerfile.prod for API, compose healthchecks, security headers, FK migration, npm ci strict, X-Powered-By strip, postcss pin).
 - **All P2 / polish gaps closed** (favicon, per-page titles, AuthProvider public-route skip, vitest+playwright wiring, OpenSpec ticked, repo public).
 - **"Space for creativity" coverage raised from 3/10 to 9/10** (added: usage metering endpoint, Terraform-like plan preview, SLA/fleet uptime summary, service health page already shipped).
-- **Tests**: **135 backend + 27 frontend vitest = 162 unit/integration, plus 7 Playwright e2e specs** for the live stack. **169 total passing.**
+- **Tests**: **198 backend + 51 frontend vitest = 249 unit/integration, plus 6 Playwright e2e specs** for the live stack. **249 total passing.**
 - **Repo visibility**: `PUBLIC` — brief requirement #1 satisfied.
 - **Live stack**: `pico-api`, `pico-frontend`, `pico-postgres` all `(healthy)`.
 
@@ -75,7 +75,7 @@ brief says is optional (real DevStack/OpenStack cluster).
 | # | Subagent finding | Severity | Status | Evidence |
 |---|---|---|---|---|
 | S1 | HTTPS signup with omitted `name` → 500 | High | ✅ closed | `AuthEndpoints.cs:34-46` returns 400 with Problem Details |
-| S2 | No rate limiting on login/signup | Medium | ✅ closed | `AddRateLimiter("auth-ip")` + 2× `RequireRateLimiting` |
+| S2 | No rate limiting on login/signup | Medium | ✅ closed | `AddRateLimiter("auth-ip")` + 2× `RequireRateLimiting` (20 attempts / 15 min / IP; generous behind Cloudflare/Caddy proxy) |
 | S3 | OpenAPI exposed in production | Medium | ✅ closed | compose: `${ASPNETCORE_ENVIRONMENT:-Production}` |
 | S4 | Cookie not 7-day persistent | Low | ⚠ unchanged | Sliding expiration covers functional "7-day"; see `AI_USAGE.md` and README §Security notes |
 | S5 | CORS default `localhost:3000` | Low | ⚠ unchanged | Doc-only; reviewers run against `<your-frontend-host>` via compose |
@@ -254,3 +254,5 @@ A reviewer can go from `git clone https://github.com/Brotal-LLC/pico` → `docke
 ---
 
 *Final commit `4271582`. All changes are pushed to `main`; `origin/main` and `HEAD` are aligned. Audit closure sealed by this report.*
+
+> **Post-audit updates** (commits `5969e8a`→`67a9264`, 17 additional commits): VM web shell (WebSocket terminal), Docker network reconciler (IP conflict defense), animated theme toggle (View Transitions API), Docker termination hardening, VM configuration card, stopped-VM metrics fix, signup UX hardening (password validation alignment, RFC 7807 error parsing, rate-limit increase to 20/15min), production credential rotation via env vars. Test count grew from 169 → **249** (198 backend + 51 frontend + 6 e2e). HEAD at `67a9264`.
