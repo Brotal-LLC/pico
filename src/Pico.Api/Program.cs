@@ -104,7 +104,10 @@ builder.Services.AddDbContext<PicoDbContext>(opts => opts.UseNpgsql(
         errorCodesToAdd: null)));
 
 // ─── Rate limiting (Gap #S2 from AUDIT_REPORT.md) ────────────────────────
-// 5 login/signup attempts per 15 minutes per IP. Rejects with 429.
+// 20 login/signup attempts per 15 minutes per IP. Generous enough for
+// legitimate users who fat-finger passwords, while still blocking brute
+// force. Behind Cloudflare/Caddy, RemoteIpAddress is the proxy's IP so
+// all users share the same bucket — the higher limit avoids false lockouts.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -113,7 +116,7 @@ builder.Services.AddRateLimiter(options =>
         var key = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 5,
+            PermitLimit = 20,
             Window = TimeSpan.FromMinutes(15),
             QueueLimit = 0,
             AutoReplenishment = true

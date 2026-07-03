@@ -66,9 +66,21 @@ function isUnsafeMethod(method: string) {
 }
 
 function getErrorMessage(body: unknown, fallback: string) {
-  if (body && typeof body === "object" && "error" in body) {
-    const error = (body as { error?: unknown }).error;
-    if (typeof error === "string") return error;
+  if (body && typeof body === "object") {
+    // RFC 7807 / ASP.NET ProblemDetails: { title, detail, status, ... }
+    if ("detail" in body && typeof (body as { detail?: unknown }).detail === "string")
+      return (body as { detail: string }).detail;
+    // Flat error string
+    if ("error" in body && typeof (body as { error?: unknown }).error === "string")
+      return (body as { error: string }).error;
+    // Validation errors from ASP.NET MVC: { errors: { field: [msg] } }
+    if ("errors" in body) {
+      const errors = (body as { errors?: Record<string, string[]> }).errors;
+      if (errors && typeof errors === "object") {
+        const first = Object.values(errors).flat()[0];
+        if (typeof first === "string") return first;
+      }
+    }
   }
   return fallback;
 }
@@ -134,11 +146,19 @@ async function request<T>(path: string, opts: ApiOptions = {}): Promise<T> {
     if (res.status === 401) {
       throw new UnauthenticatedError(res.statusText, errBody);
     }
+    if (res.status === 429) {
+      throw new PicoApiError(
+        res.status,
+        res.statusText,
+        errBody,
+        "Too many attempts. Please wait a few minutes and try again."
+      );
+    }
     throw new PicoApiError(
       res.status,
       res.statusText,
       errBody,
-      getErrorMessage(errBody, res.statusText)
+      getErrorMessage(errBody, res.statusText || "Request failed")
     );
   }
   if (res.status === 204) return undefined as T;

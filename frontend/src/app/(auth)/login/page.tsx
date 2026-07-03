@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -22,7 +22,7 @@ type LoginForm = z.infer<typeof schema>;
 
 export default function LoginPage() {
   usePageTitle("Sign in");
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -31,6 +31,11 @@ export default function LoginPage() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({ resolver: zodResolver(schema) });
+
+  // Already logged in? Bounce to dashboard.
+  useEffect(() => {
+    if (user) router.replace("/dashboard");
+  }, [user, router]);
 
   const onSubmit = handleSubmit(async (data) => {
     setSubmitError(null);

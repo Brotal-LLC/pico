@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -15,14 +15,14 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 const schema = z.object({
   name: z.string().min(1, "Name required"),
   email: z.string().email("Invalid email"),
-  password: z.string().min(6, "Min 6 characters"),
+  password: z.string().min(8, "At least 8 characters"),
 });
 
 type SignupForm = z.infer<typeof schema>;
 
 export default function SignupPage() {
   usePageTitle("Sign up");
-  const { signup } = useAuth();
+  const { signup, user } = useAuth();
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -31,6 +31,11 @@ export default function SignupPage() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<SignupForm>({ resolver: zodResolver(schema) });
+
+  // Already logged in? Bounce to dashboard.
+  useEffect(() => {
+    if (user) router.replace("/dashboard");
+  }, [user, router]);
 
   const onSubmit = handleSubmit(async (data) => {
     setSubmitError(null);
@@ -79,11 +84,16 @@ export default function SignupPage() {
                 id="password"
                 type="password"
                 autoComplete="new-password"
-                aria-invalid={!!errors.password}
-                aria-describedby={errors.password ? "password-error" : undefined}
+                aria-describedby={errors.password ? "password-error" : "password-hint"}
                 {...register("password")}
               />
-              {errors.password && <p id="password-error" className="text-xs text-error">{errors.password.message}</p>}
+              {errors.password ? (
+                <p id="password-error" className="text-xs text-error">{errors.password.message}</p>
+              ) : (
+                <p id="password-hint" className="text-xs text-muted-foreground">
+                  At least 8 characters
+                </p>
+              )}
             </div>
             {submitError && <p className="text-sm text-error">{submitError}</p>}
             <Button type="submit" className="w-full" disabled={isSubmitting}>

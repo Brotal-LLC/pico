@@ -75,7 +75,7 @@ public class SignupValidationTests : IClassFixture<CsrfEndpointTests.CsrfWebAppl
 
 /// <summary>
 /// Regression test for AUDIT_REPORT §S2: rate limiting on login/signup.
-/// 5 attempts / 15 min / IP — the 6th must return 429.
+/// 20 attempts / 15 min / IP — the 21st must return 429.
 /// </summary>
 public class RateLimitTests : IClassFixture<CsrfEndpointTests.CsrfWebApplicationFactory>
 {
@@ -87,12 +87,12 @@ public class RateLimitTests : IClassFixture<CsrfEndpointTests.CsrfWebApplication
     }
 
     [Fact]
-    public async Task Signup_SixthAttempt_Returns429()
+    public async Task Signup_TwentyFirstAttempt_Returns429()
     {
         using var client = _factory.CreateClient();
 
-        // First 5 attempts should pass through (return 400 due to bad payload or 401/etc — not 429)
-        for (int i = 0; i < 5; i++)
+        // First 20 attempts should pass through (return 400 due to bad payload or 401/etc — not 429)
+        for (int i = 0; i < 20; i++)
         {
             var tokenResponse = await client.GetFromJsonAsync<CsrfEndpointTests.CsrfTokenResponse>("/api/auth/csrf-token");
             var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/signup")
@@ -104,7 +104,7 @@ public class RateLimitTests : IClassFixture<CsrfEndpointTests.CsrfWebApplication
             Assert.NotEqual(HttpStatusCode.TooManyRequests, r.StatusCode);
         }
 
-        // 6th attempt must be rate-limited
+        // 21st attempt must be rate-limited
         var token = await client.GetFromJsonAsync<CsrfEndpointTests.CsrfTokenResponse>("/api/auth/csrf-token");
         var req6 = new HttpRequestMessage(HttpMethod.Post, "/api/auth/signup")
         {
