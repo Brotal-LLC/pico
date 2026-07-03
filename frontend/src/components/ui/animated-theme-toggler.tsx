@@ -164,8 +164,10 @@ export function AnimatedThemeToggler({
 
   const toggleTheme = useCallback(() => {
     const button = buttonRef.current;
+    const nextTheme: "light" | "dark" = isDark ? "light" : "dark";
+
     if (!button) {
-      onThemeChange(isDark ? "light" : "dark");
+      onThemeChange(nextTheme);
       return;
     }
 
@@ -188,16 +190,9 @@ export function AnimatedThemeToggler({
       Math.max(y, viewportHeight - y)
     );
 
-    const applyTheme = () => {
-      const nextTheme: "light" | "dark" = isDark ? "light" : "dark";
-      // Toggle synchronously inside the VT callback so the new theme
-      // is captured in the "new" snapshot, not the "old" one.
-      document.documentElement.classList.toggle("dark", nextTheme === "dark");
-      onThemeChange(nextTheme);
-    };
-
     if (typeof document.startViewTransition !== "function") {
-      applyTheme();
+      // No VT API — just flip the theme directly.
+      onThemeChange(nextTheme);
       return;
     }
 
@@ -224,13 +219,38 @@ export function AnimatedThemeToggler({
       root.style.removeProperty("--magicui-theme-vt-clip-from");
     };
 
+    // ── Key fix: single source of truth for the class toggle ──────
+    //
+    // The previous code called BOTH `classList.toggle("dark")` AND
+    // `onThemeChange(nextTheme)` (which triggers next-themes' own
+    // class-toggle effect) inside the view-transition callback.
+    // next-themes' effect runs asynchronously AFTER flushSync
+    // resolves, causing a second class toggle on <html> that
+    // produces a visible flash before the clip-path animation
+    // completes.
+    //
+    // Fix: only toggle the class inside the VT callback (for the
+    // snapshot). Defer `onThemeChange` — which persists to
+    // localStorage and syncs React state — until AFTER the
+    // animation finishes. next-themes' effect will see the class
+    // is already correct and no-op.
     const transition = document.startViewTransition(() => {
-      flushSync(applyTheme);
+      flushSync(() => {
+        document.documentElement.classList.toggle("dark", nextTheme === "dark");
+      });
     });
-    if (typeof transition?.finished?.finally === "function") {
-      transition.finished.finally(cleanup);
-    } else {
+
+    // Persist via next-themes after the animation completes so its
+    // effect doesn't fight the view transition.
+    const persistTheme = () => {
+      onThemeChange(nextTheme);
       cleanup();
+    };
+
+    if (typeof transition?.finished?.finally === "function") {
+      transition.finished.finally(persistTheme);
+    } else {
+      persistTheme();
     }
 
     const ready = transition?.ready;
