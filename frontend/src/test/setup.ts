@@ -1,6 +1,11 @@
-import "@testing-library/jest-dom/vitest";
-import { afterEach, vi } from "vitest";
+import { afterEach, vi, expect } from "vitest";
 import { cleanup } from "@testing-library/react";
+import * as matchers from "@testing-library/jest-dom/matchers";
+
+// Register jest-dom matchers manually (vitest 4.x + jest-dom 6.x
+// compatibility: the /vitest entry point uses require() which fails
+// because vitest 4.x throws on CJS import).
+expect.extend(matchers);
 
 // jsdom doesn't implement matchMedia; next-themes reads it on mount
 // even with enableSystem=false (it probes system color-scheme).
