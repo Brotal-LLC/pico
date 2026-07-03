@@ -225,6 +225,11 @@ app.UseAuthorization();
 // Security response headers (HSTS only emitted over HTTPS, see middleware).
 app.UseSecurityHeaders(isHttpsOnly: !builder.Environment.IsEnvironment("Testing"));
 
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(30),
+});
+
 app.UseRateLimiter();
 
 // Global exception handler → ProblemDetails
@@ -268,6 +273,9 @@ app.MapCatalogEndpoints();
 
 // ─── Resource endpoints (auth required) ──────────────────────────────────
 app.MapResourceEndpoints();
+
+// ─── Shell WebSocket endpoint (auth + origin-checked) ────────────────────
+app.MapShellEndpoint(allowedOrigins);
 
 // ─── Invoice endpoints (auth required) ───────────────────────────────────
 app.MapInvoiceEndpoints();
