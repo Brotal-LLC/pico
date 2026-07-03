@@ -41,11 +41,11 @@ function makeDetail(status: string): ResourceDetail {
 }
 
 describe("resource detail lifecycle mode", () => {
-  it("classifies Running as operable (Start/Stop/Terminate shown)", () => {
+  it("classifies Running as operable (Start/Stop/Terminate + configuration card shown)", () => {
     expect(getLifecycleMode(makeDetail("Running"))).toBe("operable");
   });
 
-  it("classifies Stopped as operable (Start/Stop/Terminate shown)", () => {
+  it("classifies Stopped as operable (Start/Stop/Terminate + configuration card shown)", () => {
     expect(getLifecycleMode(makeDetail("Stopped"))).toBe("operable");
   });
 

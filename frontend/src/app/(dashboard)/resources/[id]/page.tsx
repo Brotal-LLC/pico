@@ -80,13 +80,12 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
     refetchInterval: 5000,
   });
 
-  // Flavor + image for the "Recreate with same config" summary card.
-  // Fetched lazily so operable VMs don't pay for this round-trip.
-  const showRecreateContext = getLifecycleMode(detail) === "historical" || getLifecycleMode(detail) === "failed";
+  // Flavor + image for the configuration summary card.
+  // Loaded for all VMs so Running/Stopped details show CPUs, RAM, disk, etc.
   const { data: flavor } = useQuery({
     queryKey: ["flavor", detail?.flavorId],
     queryFn: () => catalog.flavor(detail!.flavorId),
-    enabled: showRecreateContext && Boolean(detail?.flavorId),
+    enabled: Boolean(detail?.flavorId),
   });
   const { data: image } = useQuery({
     queryKey: ["image", detail?.imageId],
@@ -94,7 +93,7 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
       const images = await catalog.images();
       return images.find((i) => i.id === detail!.imageId) ?? null;
     },
-    enabled: showRecreateContext && Boolean(detail?.imageId),
+    enabled: Boolean(detail?.imageId),
   });
 
   const [events, setEvents] = useState<ResourceEvent[]>([]);
@@ -313,6 +312,41 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
           </Button>
         )}
       </div>
+
+      {(mode === "operable" || mode === "provisioning") && flavor && image && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Configuration</CardTitle>
+            <CardDescription className="mt-1">
+              Flavor, image and resources for this VM.
+            </CardDescription>
+          </CardHeader>
+          <CardBody>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <ConfigItem
+                icon={<Cpu className="h-4 w-4" />}
+                label="Package"
+                value={flavor.name}
+              />
+              <ConfigItem
+                icon={<MemoryStick className="h-4 w-4" />}
+                label="Image"
+                value={`${image.os} ${image.version}`}
+              />
+              <ConfigItem
+                icon={<HardDrive className="h-4 w-4" />}
+                label="Resources"
+                value={`${flavor.vcpus} vCPU · ${(flavor.ramMb / 1024).toFixed(0)} GB RAM · ${flavor.diskGb} GB disk`}
+              />
+              <ConfigItem
+                icon={<HardDrive className="h-4 w-4" />}
+                label="Created"
+                value={formatRelativeTime(detail.createdAt)}
+              />
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {mode === "historical" && flavor && image && (
         <Card>
