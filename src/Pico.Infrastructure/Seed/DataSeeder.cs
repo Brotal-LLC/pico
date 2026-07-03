@@ -76,6 +76,12 @@ public class DataSeeder
         }
 
         // ─── Demo users (passwords hashed with IPasswordHasher) ──────────
+        // In production, the demo credentials are injected via environment
+        // variables. Default values are provided only for local reviewer/dev
+        // setups where .env.example is used unchanged.
+        var demoPassword  = Environment.GetEnvironmentVariable("DEMO_PASSWORD")  ?? "pico-demo-password";
+        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? "pico-admin-password";
+
         User demoUser, adminUser;
         if (usersAlready)
         {
@@ -84,8 +90,8 @@ public class DataSeeder
         }
         else
         {
-            var demoHash  = _hasher.Hash("pico-demo-password");
-            var adminHash = _hasher.Hash("pico-admin-password");
+            var demoHash  = _hasher.Hash(demoPassword);
+            var adminHash = _hasher.Hash(adminPassword);
             demoUser  = User.Create("demo@pico.local",  "Demo User", demoHash,  UserRole.Customer);
             adminUser = User.Create("admin@pico.local", "Admin User", adminHash, UserRole.Admin);
             db.Users.AddRange(demoUser, adminUser);
