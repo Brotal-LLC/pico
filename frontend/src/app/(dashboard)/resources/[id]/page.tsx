@@ -238,36 +238,49 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
         {mode === "operable" && (
           <div className="flex flex-wrap gap-2">
             {/*
-             * Always show all three buttons. Disable only while a mutation
-             * is in flight — the server enforces state-machine validity,
-             * so a Stop on a Stopped VM returns a clear "Invalid
-             * transition" toast instead of a silently-disabled button.
-             * This matches the "each VM should have all lifecycle options"
-             * request: the buttons are a UI affordance, not a state guard.
+             * Lifecycle buttons with proper state management:
+             *
+             *  Start   — disabled when already Running; shows
+             *            "Starting…" while the mutation is in flight.
+             *            After success, the 5s refetch picks up the
+             *            Running status and the button stays disabled.
+             *
+             *  Stop    — disabled when already Stopped; shows
+             *            "Stopping…" while the mutation is in flight.
+             *            After success, the refetch picks up Stopped
+             *            and the button stays disabled.
+             *
+             *  Terminate — always enabled in operable mode (the
+             *              confirm dialog is the guard, not the
+             *              button). Shows "Terminating…" while pending.
+             *
+             *  A mutation on one button disables all three to prevent
+             *  conflicting actions (e.g. pressing Stop while Start is
+             *  mid-flight).
              */}
             <Button
               variant="outline"
               onClick={() => start.mutate()}
-              disabled={start.isPending}
+              disabled={start.isPending || stop.isPending || terminate.isPending || detail.status === "Running"}
             >
               <Play className="h-4 w-4" />
-              Start
+              {start.isPending ? "Starting…" : "Start"}
             </Button>
             <Button
               variant="outline"
               onClick={() => stop.mutate()}
-              disabled={stop.isPending}
+              disabled={start.isPending || stop.isPending || terminate.isPending || detail.status === "Stopped"}
             >
               <Square className="h-4 w-4" />
-              Stop
+              {stop.isPending ? "Stopping…" : "Stop"}
             </Button>
             <Button
               variant="danger"
               onClick={confirmTerminate}
-              disabled={terminate.isPending}
+              disabled={start.isPending || stop.isPending || terminate.isPending}
             >
               <Trash2 className="h-4 w-4" />
-              Terminate
+              {terminate.isPending ? "Terminating…" : "Terminate"}
             </Button>
           </div>
         )}
