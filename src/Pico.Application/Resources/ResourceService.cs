@@ -480,6 +480,9 @@ public class ResourceService
         if (resource is null) return null;
         if (!isAdmin && resource.UserId != userId) return null;
         if (resource.ExternalId is null) return ResourceUsage.Empty();
+        // Stopped or terminal VMs have no live runtime metrics; avoid
+        // calling the backend for a container that is not running.
+        if (resource.IsStopped() || resource.IsTerminated()) return ResourceUsage.Empty();
         return await _backend.GetUsageAsync(resource.ExternalId, ct);
     }
 

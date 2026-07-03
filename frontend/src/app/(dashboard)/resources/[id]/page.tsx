@@ -77,7 +77,13 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
   } = useQuery({
     queryKey: ["resource-usage", id],
     queryFn: () => resources.usage(id),
-    refetchInterval: 5000,
+    refetchInterval: (q) => {
+      const status = detail?.status;
+      // No live metrics for stopped or terminal VMs; keep the last sample.
+      if (!status || status === "Stopped" || status === "Terminated" || status === "Failed") return false;
+      return 5000;
+    },
+    enabled: Boolean(detail) && detail?.status !== "Terminated" && detail?.status !== "Failed",
   });
 
   // Flavor + image for the configuration summary card.

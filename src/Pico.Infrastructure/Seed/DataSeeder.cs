@@ -312,6 +312,14 @@ public class DataSeeder
 
             if (finalStatus == ResourceStatus.Terminated)
             {
+                // Remove the actual backend container so historical demo VMs
+                // don't leak live Docker containers.
+                var terminateResult = await backend.TerminateAsync(resource.ExternalId!, ct);
+                if (!terminateResult.Success)
+                {
+                    Console.WriteLine($"Seeder warning: failed to terminate demo container {resource.ExternalId}: {terminateResult.Error}");
+                }
+
                 resource.TransitionTo(ResourceStatus.Terminated,
                     "User terminated (historical)");
                 BackdateResource(resource, createdAt.AddDays(ageDays - 1));
@@ -323,6 +331,16 @@ public class DataSeeder
             }
             else if (finalStatus == ResourceStatus.Stopped)
             {
+                // Stop the actual backend container so the demo VM is
+                // genuinely stopped. Without this, the DB says Stopped
+                // while Docker keeps the container running, which makes
+                // usage stats continue to update and confuses reviewers.
+                var stopResult = await backend.StopAsync(resource.ExternalId!, ct);
+                if (!stopResult.Success)
+                {
+                    Console.WriteLine($"Seeder warning: failed to stop demo container {resource.ExternalId}: {stopResult.Error}");
+                }
+
                 resource.TransitionTo(ResourceStatus.Stopped, "User stopped");
                 BackdateResource(resource, createdAt.AddHours(2));
                 await db.SaveChangesAsync(ct);
