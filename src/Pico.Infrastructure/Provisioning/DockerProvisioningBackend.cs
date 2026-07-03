@@ -216,6 +216,116 @@ public class DockerProvisioningBackend : IProvisioningBackend
         }
     }
 
+    public async Task<IShellSession> ExecInteractiveAsync(string externalId, CancellationToken ct)
+    {
+        // docker exec -i <container> /bin/sh — hijacked bidirectional
+        // stream in TTY mode. The session returns the multiplexed
+        // stream's input side as the caller's stdin sink and pumps its
+        // output side as a readable stream of stdout bytes.
+        var exec = await _docker.Exec.ExecCreateContainerAsync(externalId, new ContainerExecCreateParameters
+        {
+            AttachStdin = true,
+            AttachStdout = true,
+            AttachStderr = true,
+            Tty = true,
+            Cmd = new List<string> { "/bin/sh" }
+        }, ct);
+        var multiplexed = await _docker.Exec.StartAndAttachContainerExecAsync(exec.ID, tty: true, ct);
+        return new DockerShellSession(multiplexed);
+    }
+
+    /// <summary>
+    /// Adapts a Docker <see cref="MultiplexedStream"/> (in TTY mode) to
+    /// the <see cref="IShellSession"/> contract. In TTY mode the daemon
+    /// sends stdout+stderr already merged and stdin piggybacks on the
+    /// same channel, so we can treat the multiplexed stream as a raw
+    /// bidirectional pipe: <see cref="InputStream"/> wraps the write
+    /// side and <see cref="OutputStream"/> wraps the read side.
+    /// </summary>
+    private sealed class DockerShellSession : IShellSession
+    {
+        private readonly MultiplexedStream _mux;
+        private readonly DockerShellInputStream _input;
+        private readonly DockerShellOutputStream _output;
+        private bool _disposed;
+
+        public DockerShellSession(MultiplexedStream mux)
+        {
+            _mux = mux;
+            _input = new DockerShellInputStream(mux);
+            _output = new DockerShellOutputStream(mux);
+        }
+
+        public Stream InputStream => _input;
+        public Stream OutputStream => _output;
+
+        public void Kill()
+        {
+            // Closing the write side tells the daemon the stdin EOF,
+            // which typically causes the shell to exit. If it doesn't,
+            // DisposeAsync will dispose the underlying stream and the
+            // session ends anyway.
+            try { _input.Close(); } catch { }
+            try { DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _mux.Dispose(); } catch { }
+            await Task.CompletedTask;
+        }
+
+        private sealed class DockerShellInputStream : Stream
+        {
+            private readonly MultiplexedStream _mux;
+            public DockerShellInputStream(MultiplexedStream mux) => _mux = mux;
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
+            public override int Read(byte[] b, int o, int c) => throw new NotSupportedException();
+            public override long Seek(long o, SeekOrigin r) => throw new NotSupportedException();
+            public override void SetLength(long v) => throw new NotSupportedException();
+            public override void Write(byte[] b, int o, int c) => _mux.WriteAsync(b, o, c, CancellationToken.None).GetAwaiter().GetResult();
+            public override Task WriteAsync(byte[] b, int o, int c, CancellationToken ct) => _mux.WriteAsync(b, o, c, ct);
+        }
+
+        private sealed class DockerShellOutputStream : Stream
+        {
+            private readonly MultiplexedStream _mux;
+            public DockerShellOutputStream(MultiplexedStream mux) => _mux = mux;
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
+            public override long Seek(long o, SeekOrigin r) => throw new NotSupportedException();
+            public override void SetLength(long v) => throw new NotSupportedException();
+            public override void Write(byte[] b, int o, int c) => throw new NotSupportedException();
+            public override int Read(byte[] b, int o, int c)
+                => ReadAsync(b, o, c, CancellationToken.None).GetAwaiter().GetResult();
+            public override Task<int> ReadAsync(byte[] b, int o, int c, CancellationToken ct)
+            {
+                // Docker.DotNet's MultiplexedStream.ReadOutputAsync returns a
+                // ReadResult struct (Count + EOF), not a raw int. Adapt.
+                return ReadAdaptedAsync(b, o, c, ct);
+            }
+
+            private async Task<int> ReadAdaptedAsync(byte[] b, int o, int c, CancellationToken ct)
+            {
+                var rr = await _mux.ReadOutputAsync(b, o, c, ct);
+                return rr.EOF ? 0 : rr.Count;
+            }
+        }
+    }
+
     /// <summary>Map Pico image names to Docker image references.</summary>
     private static string MapImageName(string picoImage) => picoImage switch
     {

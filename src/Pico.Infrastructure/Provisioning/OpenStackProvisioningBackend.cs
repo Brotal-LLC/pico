@@ -130,6 +130,17 @@ public class OpenStackProvisioningBackend : IProvisioningBackend
         }
     }
 
+    public Task<IShellSession> ExecInteractiveAsync(string externalId, CancellationToken ct)
+    {
+        // OpenStack shell-into-VM goes through nova-console (VNC) or
+        // serial-console. Not implemented yet — the WebSocket endpoint
+        // surfaces this error to the client. Returning a session that
+        // immediately signals EOF would hide the missing-feature signal,
+        // so we throw so the endpoint can return 501 Not Implemented.
+        throw new NotSupportedException(
+            "Interactive shell is not yet implemented for OpenStack-provisioned VMs.");
+    }
+
     private async Task<string> GetTokenAsync(CancellationToken ct)
     {
         if (_tokenCache is not null && _tokenCache.ExpiresAt > DateTimeOffset.UtcNow)

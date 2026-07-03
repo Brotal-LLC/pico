@@ -265,5 +265,7 @@ public class DefaultCorsPolicyTests : IClassFixture<DefaultCorsPolicyTests.Defau
         public Task<ProvisionResult> TerminateAsync(string externalId, CancellationToken ct) => Task.FromResult(ProvisionResult.Ok(externalId, "127.0.0.1"));
         public Task<ResourceUsage> GetUsageAsync(string externalId, CancellationToken ct) => Task.FromResult(ResourceUsage.Empty());
         public Task<BackendHealth> GetHealthAsync(CancellationToken ct) => Task.FromResult(new BackendHealth(Mode, true, null, DateTimeOffset.UtcNow));
+        public Task<IShellSession> ExecInteractiveAsync(string externalId, CancellationToken ct) =>
+            throw new NotSupportedException("CORS test backend does not implement interactive exec.");
     }
 }

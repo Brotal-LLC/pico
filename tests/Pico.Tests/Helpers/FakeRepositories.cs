@@ -134,4 +134,130 @@ public class FakeProvisioningBackend : IProvisioningBackend
 
     public Task<BackendHealth> GetHealthAsync(CancellationToken ct) =>
         Task.FromResult(new BackendHealth(Mode, true, null, DateTimeOffset.UtcNow));
+
+    // ─── Interactive exec (test stub) ───────────────────────────────────
+    // The fake session pipes InputStream → OutputStream so callers can
+    // verify the WebSocket bridge plumbing without a real Docker exec.
+    // Implementation: a queue-backed in-memory pipe. Bytes written to
+    // InputStream are appended to the queue; OutputStream reads drain
+    // it. Kill enqueues an EOF marker.
+
+    public int ExecInteractiveCalls { get; private set; }
+    public List<string> ExecInteractiveTargets { get; } = new();
+
+    public Task<IShellSession> ExecInteractiveAsync(string externalId, CancellationToken ct)
+    {
+        ExecInteractiveCalls++;
+        ExecInteractiveTargets.Add(externalId);
+        return Task.FromResult<IShellSession>(new LoopbackShellSession());
+    }
+
+    private sealed class LoopbackShellSession : IShellSession
+    {
+        // ConcurrentQueue<byte[]> with a sentinel null = EOF. Tiny
+        // helper to bridge the input stream and output stream without
+        // taking on a real PTY.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<byte[]> _queue = new();
+        private readonly ManualResetEventSlim _dataAvailable = new(false);
+        private readonly Stream _input;
+        private readonly Stream _output;
+        private bool _eof;
+        private bool _disposed;
+
+        public LoopbackShellSession()
+        {
+            _input = new WriteSide(this);
+            _output = new ReadSide(this);
+        }
+
+        public Stream InputStream => _input;
+        public Stream OutputStream => _output;
+        public void Kill() => End();
+
+        private void End()
+        {
+            _eof = true;
+            _dataAvailable.Set();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            End();
+            _input.Dispose();
+            _output.Dispose();
+            _dataAvailable.Dispose();
+            await Task.CompletedTask;
+        }
+
+        private sealed class WriteSide : Stream
+        {
+            private readonly LoopbackShellSession _owner;
+            public WriteSide(LoopbackShellSession o) => _owner = o;
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
+            public override int Read(byte[] b, int o, int c) => throw new NotSupportedException();
+            public override long Seek(long o, SeekOrigin r) => throw new NotSupportedException();
+            public override void SetLength(long v) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                var copy = new byte[count];
+                Buffer.BlockCopy(buffer, offset, copy, 0, count);
+                _owner._queue.Enqueue(copy);
+                _owner._dataAvailable.Set();
+            }
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            {
+                Write(buffer, offset, count);
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class ReadSide : Stream
+        {
+            private readonly LoopbackShellSession _owner;
+            private byte[]? _carry;
+            private int _carryPos;
+            public ReadSide(LoopbackShellSession o) => _owner = o;
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
+            public override long Seek(long o, SeekOrigin r) => throw new NotSupportedException();
+            public override void SetLength(long v) => throw new NotSupportedException();
+            public override void Write(byte[] b, int o, int c) => throw new NotSupportedException();
+            public override int Read(byte[] buffer, int offset, int count)
+                => ReadAsync(buffer, offset, count, CancellationToken.None).GetAwaiter().GetResult();
+
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            {
+                while (_carry is null || _carryPos >= _carry.Length)
+                {
+                    if (_owner._eof && _owner._queue.IsEmpty) return 0;
+                    if (!_owner._queue.TryDequeue(out _carry))
+                    {
+                        // Wait briefly for data or EOF.
+                        _owner._dataAvailable.Wait(ct);
+                        _owner._dataAvailable.Reset();
+                        if (_owner._eof && _owner._queue.IsEmpty) return 0;
+                        continue;
+                    }
+                    _carryPos = 0;
+                }
+                var n = Math.Min(count, _carry.Length - _carryPos);
+                Buffer.BlockCopy(_carry, _carryPos, buffer, offset, n);
+                _carryPos += n;
+                return n;
+            }
+        }
+    }
 }
