@@ -22,6 +22,7 @@ import {
   HardDrive,
 } from "lucide-react";
 import { formatBytes, formatRelativeTime, getErrorMessage } from "@/lib/utils";
+import { VmShellPanel } from "@/components/VmShellPanel";
 
 function dedupeEvents(items: ResourceEvent[]) {
   const seen = new Set<string>();
@@ -382,6 +383,9 @@ export default function ResourceDetailPage({ params }: { params: Promise<{ id: s
           </CardBody>
         </Card>
       </div>
+
+      {/* Interactive shell — only shown when VM is running */}
+      <VmShellPanel resourceId={id} isRunning={detail.status === "Running"} />
 
       <Card>
         <CardHeader>

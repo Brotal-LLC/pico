@@ -233,6 +233,11 @@ export const resources = {
     }),
   usage: (id: string) => request<ResourceUsage>(`/api/resources/${id}/usage`),
   eventsUrl: (id: string) => `${API_URL}/api/resources/${id}/events`,
+  shellUrl: (id: string) => {
+    // Convert HTTP(S) base to WS(S) for the shell WebSocket endpoint
+    const wsBase = API_URL.replace(/^http/, "ws");
+    return `${wsBase}/api/resources/${id}/shell`;
+  },
 };
 
 export interface ProvisioningPlan {
