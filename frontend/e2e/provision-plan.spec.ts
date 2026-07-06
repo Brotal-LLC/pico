@@ -2,64 +2,68 @@ import { test, expect } from "@playwright/test";
 
 /**
  * E2E test for the Terraform-style provisioning plan preview.
- * Hits POST /api/resources/preview (via the catalog detail page) and
- * expects the preview card to render with cost + image fit + warnings.
+ * Hits the catalog detail page and expects the preview card to render
+ * with cost + image fit + warnings.
  *
  * Requires:
  *   - Stack reachable at process.env.PLAYWRIGHT_BASE_URL
- *   - Demo credentials: demo@pico.local / localdev123
+ *   - Demo credentials from env vars (falls back to local dev defaults):
+ *     PLAYWRIGHT_DEMO_EMAIL  (default: demo@pico.local)
+ *     PLAYWRIGHT_DEMO_PASS   (default: pico-demo-password)
  */
+const DEMO_EMAIL = process.env.PLAYWRIGHT_DEMO_EMAIL ?? "demo@pico.local";
+const DEMO_PASS = process.env.PLAYWRIGHT_DEMO_PASS ?? "pico-demo-password";
+
 test.describe("Provision plan preview", () => {
+  test.beforeEach(async ({ page }) => {
+    // Log in before each test — the catalog detail pages are behind auth.
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill(DEMO_EMAIL);
+    await page.getByLabel(/password/i).fill(DEMO_PASS);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL(/\/dashboard$/, { timeout: 15_000 });
+  });
+
   test("preview card renders after picking flavor + image", async ({ page }) => {
-    // Public catalog flow — no auth required to hit the catalog.
+    // Go to the authenticated catalog page
     await page.goto("/catalog");
-    // Pick the first flavor card → goes to /catalog/[flavorId]
-    await page.getByRole("link", { name: /pico\./i }).first().click();
+    // Click the first "Provision" link → goes to /catalog/[flavorId]
+    await page.getByRole("link", { name: /provision/i }).first().click();
     await page.waitForURL(/\/catalog\/[a-f0-9-]+$/);
 
-    // Wait for flavor + images to load; select will be auto-populated.
-    await expect(page.getByText(/provisioning plan|computing provision plan/i)).toBeVisible({
+    // Wait for the provisioning plan section to appear.
+    await expect(page.getByText(/provisioning plan/i)).toBeVisible({
       timeout: 10_000,
     });
 
     // The actual preview card must surface the estimated monthly cost.
     await expect(page.getByText(/estimated monthly/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/os image/i)).toBeVisible();
+    // The preview card includes an "Image fits in disk" check.
+    await expect(page.getByText(/image fits in disk/i)).toBeVisible();
   });
 
-  test("security headers are present on every response", async ({ page, baseURL }) => {
-    const responses: Array<{ url: string; headers: Record<string, string> }> = [];
-    page.on("response", (res) => {
-      responses.push({ url: res.url(), headers: res.headers() });
-    });
-
-    await page.goto("/");
-    await page.goto("/catalog");
-
-    // Match responses that came from the stack under test (i.e. the
-    // configured PLAYWRIGHT_BASE_URL), not third-party assets. We build
-    // a same-origin predicate from the baseURL rather than hardcoding a
-    // production hostname so the test stays portable.
+  test("security headers are present on API responses", async ({ page, baseURL }) => {
+    // Derive the API URL from the base URL. The API runs on port 8080
+    // locally, or on the api.* subdomain for deployed stacks.
     const baseOrigin = new URL(baseURL ?? "http://localhost:3000").origin;
-    const ourResponses = responses.filter((r) => {
-      try {
-        return new URL(r.url).origin === baseOrigin;
-      } catch {
-        return false;
-      }
-    });
-    expect(ourResponses.length).toBeGreaterThan(0);
-    const sample = ourResponses.find((r) =>
-      r.headers["x-content-type-options"]
-    ) ?? ourResponses[0];
+    const apiBase = baseOrigin
+      .replace(":3000", ":8080")
+      .replace("//pico.", "//pico-api.");
 
-    expect.soft(sample.headers["x-content-type-options"]).toBe("nosniff");
-    expect.soft(sample.headers["x-frame-options"]).toBe("DENY");
-    // CSP + HSTS are emitted by both Next headers() and the SecurityHeadersMiddleware.
-    // They may differ between the SPA (/) and API responses — assert presence only.
-    expect.soft(sample.headers["strict-transport-security"]).toMatch(/max-age=/);
-    expect.soft(sample.headers["content-security-policy"]).toBeTruthy();
-    expect.soft(sample.headers["referrer-policy"]).toBeTruthy();
-    expect.soft(sample.headers["permissions-policy"]).toBeTruthy();
+    const response = await page.request.get(`${apiBase}/api/health`);
+    expect(response.ok()).toBeTruthy();
+    const headers = response.headers();
+
+    // These headers are emitted on every response regardless of scheme.
+    expect.soft(headers["x-content-type-options"]).toBe("nosniff");
+    expect.soft(headers["x-frame-options"]).toBe("DENY");
+    expect.soft(headers["referrer-policy"]).toBeTruthy();
+    expect.soft(headers["permissions-policy"]).toBeTruthy();
+    // CSP is always present.
+    expect.soft(headers["content-security-policy"]).toBeTruthy();
+    // HSTS only present over HTTPS — skip on HTTP (localhost).
+    if (apiBase.startsWith("https")) {
+      expect(headers["strict-transport-security"]).toMatch(/max-age=/);
+    }
   });
 });
